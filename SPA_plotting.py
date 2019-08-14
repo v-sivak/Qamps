@@ -12,9 +12,14 @@ import matplotlib as mpl
 from devices_functions import *
 import h5py
 import numpy as np
+from sklearn.cluster import DBSCAN
+import matplotlib as mpl
+from scipy.optimize import curve_fit, brentq
 
 
+from scipy.constants import Boltzmann, e, h
 
+SLASH = '/'
 fontsize = 8 #1.5
 fontsize_tick = 6#15
 linewidth = 0.5 #0.25
@@ -35,13 +40,13 @@ mpl.rcParams['axes.labelpad'] = pad #4
 
 mpl.rcParams['xtick.major.size'] = tick_size
 mpl.rcParams['xtick.major.width'] = spinewidth#2.0
-mpl.rcParams['xtick.minor.size'] = tick_size / 2.0
-mpl.rcParams['xtick.minor.width'] = spinewidth / 2.0
+mpl.rcParams['xtick.minor.size'] = tick_size / 1.5
+mpl.rcParams['xtick.minor.width'] = spinewidth / 1.5
 
 mpl.rcParams['ytick.major.size'] = tick_size
 mpl.rcParams['ytick.major.width'] = spinewidth #2.0
-mpl.rcParams['ytick.minor.size'] = tick_size / 2.0 #3.0
-mpl.rcParams['ytick.minor.width'] = spinewidth / 2.0
+mpl.rcParams['ytick.minor.size'] = tick_size / 1.5 #3.0
+mpl.rcParams['ytick.minor.width'] = spinewidth / 1.5
 
 mpl.rcParams['xtick.major.pad']= pad #4
 mpl.rcParams['ytick.major.pad']= pad #4
@@ -189,7 +194,8 @@ def plot_kappa_fit(device, ftype='.png'):
 
 
 
-def plot_P1dB(device, ftype='.png',  sweep_20dB = True, large_sweep=False):
+def plot_P1dB(device, ftype='.png',  sweep_20dB = False, large_sweep=False, multiple_gains_sweep=False, 
+              sweep_name=None, flux_calibrated=True):
 
     if large_sweep: sweep_20dB = False
     fig = plt.figure(figsize=(9, 7),dpi=120)
@@ -212,19 +218,18 @@ def plot_P1dB(device, ftype='.png',  sweep_20dB = True, large_sweep=False):
                 colors = ['purple','blue','red','green','orange'] if len(gains)<=5 else mpl.cm.rainbow(np.linspace(0,1,len(gains)))
                 for i, log_g in enumerate(gains):
                     print(log_g)
-                    IIP3 = np.asarray(hdf5_file['pumping_data_'+str(int(log_g))].get('IIP3'))
-                    P1dB = np.asarray(hdf5_file['pumping_data_'+str(int(log_g))].get('P_1dB'))
+                    IIP3 = np.asarray(hdf5_file['nonlin_characterization']['pumping_data_'+str(int(log_g))].get('IIP3'))
+                    P1dB = np.asarray(hdf5_file['nonlin_characterization']['pumping_data_'+str(int(log_g))].get('P_1dB'))
                     
-                    flux_IMD = Flux(np.asarray(hdf5_file['pumping_data_'+str(int(log_g))].get('current')),device.a, device.b)
-#                    if log_g>0:
-#                        plt.plot(np.abs(flux_IMD), P1dB, color=colors[i], markersize=5.0, alpha=0.5,linestyle='-', marker='.', label='IMD at %.0f dB gain' %log_g)
+                    flux_IMD = Flux(np.asarray(hdf5_file['nonlin_characterization']['pumping_data_'+str(int(log_g))].get('current')),device.a, device.b)
+                    if log_g>10:
+                        plt.plot(flux_IMD, P1dB, color=colors[i], markersize=5.0, alpha=0.5,linestyle='-', marker='.', label=r'$P_{\rm 1 dB}$ at %.0f dB gain' %log_g)
 #                    plt.plot(flux_IMD, IIP3, color=colors[i], markersize=5.0, linestyle='None', marker='.', label='IIP3 at %.0f dB gain' %log_g)
-                    plt.plot(flux_IMD, IIP3, color=palette(i), markersize=5.0, linestyle='None', marker='.', label='At %.0f dB gain' %log_g)
+                    plt.plot(flux_IMD, IIP3, color=palette(i), markersize=5.0, linestyle='None', marker='.', label=r'$IIP_3$ At %.0f dB gain' %log_g)
 
         if sweep_20dB:
-            # plot only gain points between G_min and G_max
-#            fig.suptitle(r'$\rm P_{-1 dB}\;  and/or \; IIP_3\; for \;20dB\; gains$', fontsize=20)
-            plt.xlabel(r'$\omega_{\rm signal}/2\pi\rm \; (GHz)$', fontsize='xx-large')
+            xlabel = r'$\Phi/\Phi_0$' if flux_calibrated else 'Current (mA)'
+            plt.xlabel(xlabel, fontsize='xx-large')
             Happy_indices = []
             group = 'pumping_data' if 'pumping_data'  in hdf5_file.keys() else 'pumping_data_20'
                 
@@ -253,9 +258,40 @@ def plot_P1dB(device, ftype='.png',  sweep_20dB = True, large_sweep=False):
 #                plt.plot(freqs*1e-9, IIP3_exp, linestyle = '-', color='grey', linewidth = 0.7, markersize=7,marker = '.', label=r'$IIP_3$')
                 plt.plot(current*1e3, IIP3_exp, linestyle = '-', color='grey', linewidth = 0.7, markersize=7,marker = '.', label=device.name + r', $IIP_3$')
 
+
+        if multiple_gains_sweep:
+#            fig.suptitle(r'$\rm P_{-1 dB}\;  and/or \; IIP_3\; for \;different\; gains$', fontsize=20)
+#            fig.suptitle(r'${\rm Input\;third\;order\;intercept\;point,\;} IIP_3$', fontsize=20)
+            plt.xlabel(r'$\Phi/\Phi_0$', fontsize='xx-large')
+            if 'multiple_gains_sweep' in hdf5_file.keys():
+                gains = np.asarray(hdf5_file['multiple_gains_sweep'].get('gains'))
+                colors = ['purple','blue','red','green','orange'] if len(gains)<=5 else mpl.cm.rainbow(np.linspace(0,1,len(gains)))
+                for i, log_g in enumerate(gains):
+                    P1dB = np.asarray(hdf5_file['multiple_gains_sweep']['pumping_data_'+str(int(log_g))].get('P_1dB'))
+                    current = np.asarray(hdf5_file['multiple_gains_sweep']['pumping_data_'+str(int(log_g))].get('current'))
+                    plt.plot(current, P1dB, color=palette(i), markersize=5.0, linestyle='None', marker='.', label='At %.0f dB gain' %log_g)
+
+        if sweep_name:
+            xlabel = r'$\Phi/\Phi_0$' if flux_calibrated else 'Current (mA)'
+            plt.xlabel(xlabel, fontsize='xx-large')
+            if sweep_name in hdf5_file.keys():
+                gains = np.asarray(hdf5_file[sweep_name].get('gains'))
+                colors = ['purple','blue','red','green','orange'] if len(gains)<=5 else mpl.cm.rainbow(np.linspace(0,1,len(gains)))
+                for i, log_g in enumerate(gains):
+                    print(log_g)
+                    IIP3 = np.asarray(hdf5_file[sweep_name]['pumping_data_'+str(int(log_g))].get('IIP3'))
+                    P1dB = np.asarray(hdf5_file[sweep_name]['pumping_data_'+str(int(log_g))].get('P_1dB'))
+                    
+                    flux_IMD = Flux(np.asarray(hdf5_file[sweep_name]['pumping_data_'+str(int(log_g))].get('current')),device.a, device.b)
+                    if log_g>0:
+                        plt.plot(np.abs(flux_IMD), P1dB, color=colors[i], markersize=5.0, alpha=0.5,linestyle='-', marker='.', label=r'$P_{\rm 1 dB}$ at %.0f dB gain' %log_g)
+                    plt.plot(flux_IMD, IIP3, color=palette(i), markersize=5.0, linestyle='None', marker='.', label=r'$IIP_3$ at %.0f dB gain' %log_g)
         
         plt.legend(loc = 'best', fontsize = 'large') 
-        fig.savefig(device.device_folder + 'P_1dB_vs_freq' + ftype, dpi=600)
+        if sweep_name:
+            fig.savefig(device.device_folder + sweep_name + SLASH + 'P_1dB_vs_freq' + ftype, dpi=600)
+        else:
+            fig.savefig(device.device_folder + 'P_1dB_vs_freq' + ftype, dpi=600)
         
     finally:
         hdf5_file.close()
@@ -305,7 +341,7 @@ def plot_NVR(device, ftype='.png'):
 
  
       
-def plot_kappa_from_lin_and_bandwidth(device, ftype='.png',  sweep_20dB = True, large_sweep=False):
+def plot_kappa_from_lin_and_bandwidth(device, ftype='.png',  sweep_20dB = False, large_sweep=False, sweep_name=None):
         
     if large_sweep: sweep_20dB=False
     fig = plt.figure(figsize=(9, 7),dpi=120)
@@ -323,15 +359,15 @@ def plot_kappa_from_lin_and_bandwidth(device, ftype='.png',  sweep_20dB = True, 
                 gains = np.asarray(hdf5_file['nonlin_characterization'].get('gains'))
                 colors = ['purple','blue','red','green','orange'] if len(gains)<=5 else mpl.cm.rainbow(np.linspace(0,1,len(gains)))
                 for i, log_g in enumerate(gains):
-                    freqs = np.asarray(hdf5_file['pumping_data_'+str(int(log_g))].get('freq_c'))
+                    freqs = np.asarray(hdf5_file['nonlin_characterization']['pumping_data_'+str(int(log_g))].get('freq_c'))
                     if log_g:
-                        G = np.power(10,np.asarray(hdf5_file['pumping_data_'+str(int(log_g))].get('Gain'))/10)
-                        B = np.asarray(hdf5_file['pumping_data_'+str(int(log_g))].get('Bandwidth'))
+                        G = np.power(10,np.asarray(hdf5_file['nonlin_characterization']['pumping_data_'+str(int(log_g))].get('Gain'))/10)
+                        B = np.asarray(hdf5_file['nonlin_characterization']['pumping_data_'+str(int(log_g))].get('Bandwidth'))
                         kappa = B * np.sqrt((G-2)*(np.sqrt(G)+1)/2/np.sqrt(G)*(1+np.sqrt((G-1)/(G-2))))
                     else:
-                        kappa = np.asarray(hdf5_file['pumping_data_'+str(int(log_g))].get('kappa_c'))
+                        kappa = np.asarray(hdf5_file['nonlin_characterization']['pumping_data_'+str(int(log_g))].get('kappa_c'))
 #                    if log_g ==0 or log_g==20:
-                    plt.plot(freqs*1e-9, kappa*1e-6, color=colors[i], markersize=5.0, linestyle='-', marker='.', label='at %.0f dB gain' %log_g)
+                    plt.plot(freqs*1e-9, kappa*1e-6, color=colors[i], markersize=5.0, linestyle='none', marker='.', label='at %.0f dB gain' %log_g)
             
         if sweep_20dB:    
             group = 'pumping_data' if 'pumping_data'  in hdf5_file.keys() else 'pumping_data_20'
@@ -350,9 +386,28 @@ def plot_kappa_from_lin_and_bandwidth(device, ftype='.png',  sweep_20dB = True, 
                 kappa_lin_exp[l] = hdf5_file[group]['kappa_c'][index]
             plt.plot(freqs*1e-9, kappa_bw_exp*1e-6, linestyle = '-', linewidth = 0.7, color='red', markersize=7,marker = '.', label='from bandwidth',zorder=1)
             plt.plot(freqs*1e-9, kappa_lin_exp*1e-6, linestyle = '-', linewidth = 0.7, color='black', markersize=7,marker = '.', label='from linear fit',zorder=1)
+
+        if sweep_name:    
+            if sweep_name in hdf5_file.keys():
+                gains = np.asarray(hdf5_file[sweep_name].get('gains'))
+                colors = ['purple','blue','red','green','orange'] if len(gains)<=5 else mpl.cm.rainbow(np.linspace(0,1,len(gains)))
+                for i, log_g in enumerate(gains):
+                    freqs = np.asarray(hdf5_file[sweep_name]['pumping_data_'+str(int(log_g))].get('freq_c'))
+                    if log_g:
+                        G = np.power(10,np.asarray(hdf5_file[sweep_name]['pumping_data_'+str(int(log_g))].get('Gain'))/10)
+                        B = np.asarray(hdf5_file[sweep_name]['pumping_data_'+str(int(log_g))].get('Bandwidth'))
+                        kappa = B * np.sqrt((G-2)*(np.sqrt(G)+1)/2/np.sqrt(G)*(1+np.sqrt((G-1)/(G-2))))
+                    else:
+                        kappa = np.asarray(hdf5_file[sweep_name]['pumping_data_'+str(int(log_g))].get('kappa_c'))
+#                    if log_g ==0 or log_g==20:
+                    plt.plot(freqs*1e-9, kappa*1e-6, color=colors[i], markersize=5.0, linestyle='-', marker='.', label='at %.0f dB gain' %log_g)
+                    
         plt.legend(loc='best', fontsize='medium')
         label = '20dB' if sweep_20dB else 'large_sweep'
-        fig.savefig(device.device_folder + 'kappa_from_bandwidth_' + label + ftype, dpi=150)
+        if sweep_name:
+            fig.savefig(device.device_folder + sweep_name + SLASH + 'kappa_from_bandwidth_' + label + ftype, dpi=600)
+        else:
+            fig.savefig(device.device_folder + 'kappa_from_bandwidth_' + label + ftype, dpi=150)
     finally:
         hdf5_file.close()
 
@@ -387,7 +442,7 @@ def plot_g3_from_pumping(device, ftype='.png'):
 
         
 
-def plot_g4_exp_and_theory(device, IMD=False, large_sweep=False, ftype='.png'):
+def plot_g4_exp_and_theory(device, IMD=False, large_sweep=False, sweep_name=None, ftype='.png',flux_calibrated = True):
     
     hdf5_file = h5py.File(device.data_file,'r')
     try:
@@ -396,7 +451,10 @@ def plot_g4_exp_and_theory(device, IMD=False, large_sweep=False, ftype='.png'):
 #        fig.suptitle(r'$\chi\equiv12g_4\;\rm nonlinearity \;in\;$' + device.name, fontsize=20)
         plt.subplot(1,1,1).set_yscale('log')
         plt.ylabel(r'$|K|/2\pi\;\rm (MHz)$') #fontsize='x-large'
-        plt.xlabel(r'$\Phi/\Phi_0$') #fontsize='x-large'
+        
+        xlabel = r'$\Phi/\Phi_0$' if flux_calibrated else 'Current (mA)'
+        
+        plt.xlabel(xlabel) #fontsize='x-large'
 #        plt.xlim(0.0,0.5)
 #        plt.ylim(1e-3,1e-1)        
 #        plt.ylim(1e-4,1e-3)
@@ -450,11 +508,23 @@ def plot_g4_exp_and_theory(device, IMD=False, large_sweep=False, ftype='.png'):
                     flux_IMD = Flux(np.asarray(hdf5_file['pumping_data_'+str(int(log_g))].get('current')),device.a, device.b)
                     g4_IMD = np.asarray(hdf5_file['pumping_data_'+str(int(log_g))].get('g4_IMD'))
                     plt.plot(flux_IMD, np.abs(12*g4_IMD*1e-6), color=colors[i], markersize=5.0, linestyle='None', marker='.', label='IMD at %.0f dB gain' %log_g)
+
+        if sweep_name:
+            if sweep_name in hdf5_file.keys():
+                gains = np.asarray(hdf5_file[sweep_name].get('gains'))
+                colors = ['purple','blue','red','green','orange'] if len(gains)<=5 else mpl.cm.rainbow(np.linspace(0,1,len(gains)))
+                for i, log_g in enumerate(gains):
+                    flux_IMD = Flux(np.asarray(hdf5_file[sweep_name]['pumping_data_'+str(int(log_g))].get('current')),device.a, device.b)
+                    g4_IMD = np.asarray(hdf5_file[sweep_name]['pumping_data_'+str(int(log_g))].get('g4_IMD'))
+                    plt.plot(flux_IMD, np.abs(12*g4_IMD*1e-6), color=colors[i], markersize=5.0, linestyle='None', marker='.', label='IMD at %.0f dB gain' %log_g)
+
  
-        plt.legend(loc='lower left') #fontsize='medium'
+        plt.legend(loc='best') #fontsize='medium'
         fig.tight_layout()
-        
-        fig.savefig(device.device_folder + 'g4_nonlinearity_exp' + ftype,dpi=240)
+        if sweep_name:        
+            fig.savefig(device.device_folder + sweep_name + SLASH +'g4_nonlinearity_exp' + ftype,dpi=600)
+        else:
+            fig.savefig(device.device_folder +'g4_nonlinearity_exp' + ftype,dpi=240)
     finally:
         hdf5_file.close()
     
@@ -466,65 +536,53 @@ def plot_filter_insertion_loss():
     
     fig = plt.figure(figsize=(14, 7),dpi=120)
     plt.rc('xtick', labelsize=16)
-    plt.yticks(np.linspace(-60,0,13))
+#    plt.yticks(np.linspace(-60,0,13))
     plt.rc('ytick', labelsize=16)
     plt.xticks(np.linspace(1,20,20))
     fig.suptitle(r'PPF4 insertion loss', fontsize=20)
     plt.ylabel(r'Power, dB', fontsize='xx-large')
     plt.xlabel(r'Frequency, GHz', fontsize='xx-large')
-    plt.ylim(-60,2)
+#    plt.ylim(-60,2)
 
-    # Fridge warm
+#    # Fridge warm
     freq = np.linspace(3e9,12e9,1601)
-    short_ = extract_attenuation(r'Y:\volodymyr_sivak\SPA\DATA\ppf4\ppf4.hdf5', '180325', '131538', '"CH1_S11_1"', freq)
-    filter_ = extract_attenuation(r'Y:\volodymyr_sivak\SPA\DATA\ppf4\ppf4.hdf5', '180325', '135445', '"CH1_S11_1"', freq)
-    insertion_loss = filter_ - short_
-    plt.plot(freq*1e-9, insertion_loss, linestyle = '-', color='green', linewidth=1, label='Fridge warm')
+#    short_ = extract_attenuation(r'Y:\volodymyr_sivak\SPA\DATA\ppf4\ppf4.hdf5', '180325', '131538', '"CH1_S11_1"', freq)
+#    filter_ = extract_attenuation(r'Y:\volodymyr_sivak\SPA\DATA\ppf4\ppf4.hdf5', '180325', '135445', '"CH1_S11_1"', freq)
+#    insertion_loss = filter_ - short_
+#    plt.plot(freq*1e-9, insertion_loss, linestyle = '-', color='green', linewidth=1, label='Fridge warm')
+#
+#    # Fridge cold
+#    short_ = extract_attenuation(r'Y:\volodymyr_sivak\SPA\DATA\ppf4\ppf4.hdf5', '180330', '093250', '"CH1_S11_1"', freq)
+#    filter_ = extract_attenuation(r'Y:\volodymyr_sivak\SPA\DATA\ppf4\ppf4.hdf5', '180330', '103406', '"CH1_S11_1"', freq)
+#    insertion_loss = filter_ - short_
+#    plt.plot(freq*1e-9, insertion_loss, linestyle = '-', color='blue', linewidth=2, label='Fridge cold')
+#
+#    # Calibrated VNA
+#    freq = np.linspace(1e9,20e9,1601)
+#    insertion_loss = extract_attenuation(r'Y:\volodymyr_sivak\SPA\DATA\ppf4\ppf4.hdf5', '180320', '172415', '"CH3_S34_8"', freq)
+#    plt.plot(freq*1e-9, insertion_loss, linestyle = '-', color='red', linewidth=2, label='Calibrated VNA')
+#
+#    # HFSS
+#    array = np.transpose( np.loadtxt(r'Y:\volodymyr_sivak\SPA\DATA\ppf4\ansys.txt') )
+#    insertion_loss = array[2]
+#    frequency = array[0]
+#    plt.plot(frequency, insertion_loss, linestyle = '-', color='green', linewidth=2, label='HFSS')
 
     # Fridge cold
-    short_ = extract_attenuation(r'Y:\volodymyr_sivak\SPA\DATA\ppf4\ppf4.hdf5', '180330', '093250', '"CH1_S11_1"', freq)
-    filter_ = extract_attenuation(r'Y:\volodymyr_sivak\SPA\DATA\ppf4\ppf4.hdf5', '180330', '103406', '"CH1_S11_1"', freq)
-    insertion_loss = filter_ - short_
+    
+    hdf5 = h5py.File(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/JAMPA/DATA/JAMPA10_v2/new-4-12-circulator.hdf5')
+    
+    short_ = np.asarray(hdf5['181003']['172022'].get('logmag'))
+    circ_ = np.asarray(hdf5['181003']['172828'].get('logmag'))
+    freq = np.asarray(hdf5['181003']['172752'].get('frequencies'))
+
+    hdf5.close()
+    insertion_loss = circ_ - short_
     plt.plot(freq*1e-9, insertion_loss, linestyle = '-', color='blue', linewidth=2, label='Fridge cold')
 
-    # Calibrated VNA
-    freq = np.linspace(1e9,20e9,1601)
-    insertion_loss = extract_attenuation(r'Y:\volodymyr_sivak\SPA\DATA\ppf4\ppf4.hdf5', '180320', '172415', '"CH3_S34_8"', freq)
-    plt.plot(freq*1e-9, insertion_loss, linestyle = '-', color='red', linewidth=2, label='Calibrated VNA')
-
-    # HFSS
-    array = np.transpose( np.loadtxt(r'Y:\volodymyr_sivak\SPA\DATA\ppf4\ansys.txt') )
-    insertion_loss = array[2]
-    frequency = array[0]
-    plt.plot(frequency, insertion_loss, linestyle = '-', color='green', linewidth=2, label='HFSS')
-
-
     plt.legend(loc='best',fontsize='large')
-    fig.savefig(r'Y:\volodymyr_sivak\SPA\DATA\ppf4\ppf4.jpg',dpi=150)
-
-
+#    fig.savefig(r'Y:\volodymyr_sivak\SPA\DATA\ppf4\ppf4.jpg',dpi=150)
  
-def plot_resonator_population(device, ftype='.png'): 
-
-    fig = plt.figure(figsize=(9, 7),dpi=120)
-    plt.rc('xtick', labelsize=16)
-    plt.rc('ytick', labelsize=16)
-    fig.suptitle(r'Resonator population limitations ' + device.name, fontsize=20)
-    plt.xlabel(r'$\Phi/\Phi_0$', fontsize='x-large')
-    plt.ylabel(r'Number of photons', fontsize='x-large')
-    plt.ylim(1,1e9)
-    plt.subplot(1,1,1).set_yscale('log')
-    fluxes = np.linspace(0.1,0.5,500)
-              
-    plt.plot(fluxes, (device.g3_distributed(fluxes)/device.g4_distributed(fluxes))**2, color="blue", linewidth=1.0, linestyle='-', label=r'$g_4$ vs $g_3$ estimate')
-    plt.plot(fluxes, 2*device.E_j/device.Freq(fluxes)*device.c2_eff(fluxes)*( 5*device.c4_eff(fluxes)/device.c5_eff(fluxes) )**2, color="magenta", linewidth=1.0, linestyle='-', label=r'$g_4$ vs $g_5$ estimate')
-    plt.plot(fluxes, np.abs(2*device.E_j/device.Freq(fluxes)*device.c2_eff(fluxes)*20*device.c3_eff(fluxes)/device.c5_eff(fluxes) ), color="orange", linewidth=1.0, linestyle='-', label=r'$g_3$ vs $g_5$ estimate')
-
-    
-    plt.plot(fluxes, np.abs(device.kappa(fluxes)/8/device.g3_distributed(fluxes))**2, color="red", linewidth=1.0, linestyle='-', label=r'$n_{\infty}$ for pumping')
-    
-    plt.legend(loc='best',fontsize='x-large')
-#    fig.savefig(device.device_folder+'g3_nonlinearity_exp' + ftype,dpi=150)    
     
 
 def plot_gain_stability(device, ftype='.png'):
@@ -534,27 +592,23 @@ def plot_gain_stability(device, ftype='.png'):
         fig = plt.figure(figsize=(9, 7),dpi=120)
         fig.suptitle(r'Gain stability in ' + device.name, fontsize=20)
         plt.xlabel(r'Time (min)', fontsize='x-large')
-       
-#        Gains = np.loadtxt(r'/Volumes/Shared/Data/JPC_2018/05-02-2018 Cooldown/gain.txt')
-#        Ts = np.loadtxt(r'/Volumes/shared/Data/JPC_2018/05-02-2018 Cooldown/temperature.txt')
 
-        Gains = np.loadtxt(r'/Volumes/shared/Data/JPC_2018/09-26-2018 Cooldown/gain.txt')
-        Ts = np.loadtxt(r'/Volumes/shared/Data/JPC_2018/09-26-2018 Cooldown/temperature.txt')
+        Gains = np.loadtxt(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/JAMPA/DATA/JAMPA10/gain.txt')
+#        Ts = np.loadtxt(r'/Volumes/shared/Data/JPC_2018/09-26-2018 Cooldown/temperature.txt')
         Times = [ i for i,g in enumerate(Gains) ]
 #        Gains = np.asarray(hdf5_file['180417']['084530'].get('gains'))
 
-        plt.subplot(2,1,1)
+        plt.subplot(1,1,1)
         plt.ylabel(r'Gain (dB)', fontsize='x-large')
         plt.plot(Times, Gains, color='red', markersize=5.0, linestyle='None', marker='.')   
 
-        plt.subplot(2,1,2)
-        plt.ylabel(r'Temperature (mK)', fontsize='x-large')
-        plt.plot(Times, Ts*1000, color='red', markersize=5.0, linestyle='None', marker='.')    
+#        plt.subplot(2,1,2)
+#        plt.ylabel(r'Temperature (mK)', fontsize='x-large')
+#        plt.plot(Times, Ts*1000, color='red', markersize=5.0, linestyle='None', marker='.')    
 
         fig.savefig(device.device_folder + 'Gain_stability' + ftype, dpi=150)
     finally:
         hdf5_file.close()
-        print(1)
     
     
 
@@ -585,7 +639,7 @@ def plot_flux_sweep_data_compare_devices(device_list, labels=None, colors=None, 
             hdf5_file.close()
     plt.legend(loc='best')                                                      #APS: fontsize='x-large'
     plt.tight_layout()
-    fig1.savefig(path + 'flux_sweep_all_samples_paper' + ftype,dpi=240)
+#    fig1.savefig(path + 'flux_sweep_all_samples_paper' + ftype,dpi=240)
     
     
     
@@ -612,7 +666,7 @@ def plot_p_compare_devices(device_list, labels=None, colors=None, fpath=None, ft
 
 
 def plot_g3_from_pumping_compare_devices(device_list, labels=None, colors=None, fpath=None, ftype='.png'):
-    path = fpath if fpath else path
+#    path = fpath if fpath else path
     fig = plt.figure(figsize=(3.375, 2.0), dpi=240) #(9,7) APS: (8,6)
 #    fig.suptitle(r'$g_3\; \rm nonlinearity$', fontsize=20)
     plt.xlabel(r'$\Phi/\Phi_0$')                                                #APS: fontsize='xx-large'
@@ -637,12 +691,12 @@ def plot_g3_from_pumping_compare_devices(device_list, labels=None, colors=None, 
             hdf5_file.close()
         plt.legend(loc='best')                                                  #APS: fontsize='xx-large'
         plt.tight_layout()
-        fig.savefig(path + 'g3_all_samples_paper' + ftype, dpi=240)
+#        fig.savefig(path + 'g3_all_samples_paper' + ftype, dpi=240)
         
     
-def plot_stark_shift_data_compare_devices(device_list, labels=None, colors=None, fpath=None, ftype='.png'):
+def plot_g4_compare_devices(device_list, labels=None, colors=None, fpath=None, ftype='.png'):
     path = r'Y:\volodymyr_sivak\SPA\DATA\\'    
-    path = fpath if fpath else path
+#    path = fpath if fpath else path
     fig = plt.figure(figsize=(3.375, 2.0),dpi=240) #(9,7), APS: (8,6) #note: must replace/relink in illustrator if change figsize
 #    fontsize = 8
 #    fig.suptitle(r'$\chi\equiv12g_4$ for all devices', fontsize=20)
@@ -677,9 +731,94 @@ def plot_stark_shift_data_compare_devices(device_list, labels=None, colors=None,
             hdf5_file.close()
     axLeft.legend(loc='best') #APS: 'xx-large'
     plt.tight_layout()
-    fig.savefig(path + 'g4_all_samples_paper' + ftype,dpi=240)
+#    fig.savefig(path + 'g4_all_samples_paper' + ftype,dpi=240)
 
-     
+    
+    
+    
+def plot_omega_g3_g4_compare_devices():
+    
+    fig, axes = plt.subplots(1, 3, figsize=(7, 2))
+
+    device_list = [spa01, spa04_v2, spa08]
+    labels = ['SPA01', 'SPA04', 'SPA08']#, 'SPA13', 'SPA14']     # [d.name for d in device_list]
+    palette = plt.get_cmap('tab10')
+
+    # First plot the resonant frequency
+    ax = axes[0]                                   
+    ax.set_ylabel(r'$\omega_a / 2\pi \;\rm (GHz)$')   
+    xlim = (-1.0, 1.0)
+    ax.set_xlim(xlim)
+    ax.set_ylim(4,8)
+
+    from matplotlib.ticker import (MultipleLocator, FormatStrFormatter, AutoMinorLocator)
+    ax.yaxis.set_major_locator(MultipleLocator(1))
+    ax.yaxis.set_major_formatter(FormatStrFormatter('%d'))
+    ax.yaxis.set_minor_locator(MultipleLocator(0.5))
+    
+    fluxes = np.linspace(xlim[0], xlim[-1], 501)
+    for index, device in enumerate(device_list):
+        hdf5_file = h5py.File(device.data_file,'r')
+        try:
+            I_data = hdf5_file['fit_flux_sweep']['currents']
+            f0_data = hdf5_file['fit_flux_sweep']['f0_exp_fit']
+            flux_data = Flux(I_data, device.a, device.b)
+            ax.plot(fluxes, device.Freq(fluxes)*1e-9, color=palette(index), 
+                    linestyle='-')
+            ax.plot(flux_data, np.asarray(f0_data)*1e-9, color=palette(index), marker='.', 
+                    linestyle='None')
+        finally:
+            hdf5_file.close()                       
+
+    ax = axes[1]
+    ax.set_xlabel(r'$\Phi/\Phi_0$')                                          
+    ax.set_ylabel(r'$|g_3|/2\pi\;\rm (MHz)$')                                   
+    ax.set_yscale('log')
+    ax.set_xlim([-0.01, 0.51])
+    ax.set_ylim([1e-1, 50])
+    fluxes = np.linspace(0.0,0.5,501) 
+    
+    for index, device in enumerate(device_list):
+        hdf5_file = h5py.File(device.data_file,'r')
+        try:
+            g3_Data = np.abs(np.asarray(hdf5_file['g3_fit'].get('g3')))
+            Flux_Data = np.asarray(hdf5_file['g3_fit'].get('fluxes'))
+            ax.plot(fluxes, np.abs(device.g3_distributed(fluxes)*1e-6), color=palette(index), 
+                    linestyle='-')               
+            ax.plot(Flux_Data, np.abs(g3_Data*1e-6), color=palette(index), 
+                    marker='.', linestyle='None')
+        finally:
+            hdf5_file.close()
+    for index in range(len(labels)):
+        ax.plot([],[], color=palette(index), marker='.', linestyle='None', label=labels[index])
+    ax.legend(loc='best')               
+
+    ax = axes[2]   
+    device_list = [spa01, spa04, spa08]
+    ax.set_ylabel(r'$|g_4| / 2\pi\;\rm (MHz)$') 
+    ax.set_yscale('log')
+    xlim = (-0.01, 0.51)
+    ax.set_xlim(xlim)
+    ylimK = np.array((1e-4, 1e1))
+    ax.set_ylim(ylimK)
+    fluxes = np.linspace(0.0, 0.5, 501)
+    
+    for index, device in enumerate(device_list):
+        hdf5_file = h5py.File(device.data_file,'r')
+        try:
+            if 'fit_stark_shift' in hdf5_file.keys():
+                Flux_Data_Stark = np.asarray(hdf5_file['fit_stark_shift'].get('flux'))
+                Kerr_Data_Stark = np.asarray(hdf5_file['fit_stark_shift'].get('g4'))
+                ax.plot(fluxes, np.abs(device.g4_distributed(fluxes)*1e-6), color=palette(index),
+                         linestyle='-')
+                ax.plot(np.abs(Flux_Data_Stark), np.abs(Kerr_Data_Stark*1e-6), color=palette(index),
+                         marker='.', linestyle='None')
+        finally:
+            hdf5_file.close()
+
+    plt.tight_layout()    
+    fig.savefig(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/Prospectus/Thesis Prospectus/figs/A-B-C-devices.pdf')    
+
    
 def plot_P1dB_data_compare_devices(device_list, fpath=None, ftype='.png'):
         path = fpath if fpath else  r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/SPA/DATA/'
@@ -747,8 +886,8 @@ def plot_P1dB_and_pump_power_compare_devices(device_list, fpath=None, ftype='.pn
     palette = plt.get_cmap('tab10')
     
     labels = [x.name for x in device_list]
-    labels = ['SPA04','SPA08','SPA13','SPA14','JTLA08_v2']
-    labels = ['Device A','Device B','Device C','Device D','Device X']
+    labels = ['SPA04','SPA08','SPA13','SPA14','PPFSPA02']
+#    labels = ['Device A','Device B','Device C','Device D','Device X']
 
 
     lower_lim = -120
@@ -762,9 +901,9 @@ def plot_P1dB_and_pump_power_compare_devices(device_list, fpath=None, ftype='.pn
     gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1]) 
     ax = plt.subplot(gs[0])
 
-
+    ax.set_xlim(lower_lim-5,upper_lim+15)
     plt.yticks(np.linspace(lower_lim,upper_lim, int((upper_lim-lower_lim)/10+1) ))
-    plt.xticks(np.linspace(lower_lim,upper_lim, int((upper_lim-lower_lim)/10+1) ))
+    plt.xticks(np.linspace(lower_lim,upper_lim+10, int((upper_lim+10-lower_lim)/10+1) ))
 
     plt.ylabel(r'$GP_{\rm 1dB}$ (dBm)')
     plt.xlabel(r'Pump power (dBm)')
@@ -774,36 +913,48 @@ def plot_P1dB_and_pump_power_compare_devices(device_list, fpath=None, ftype='.pn
         
     l = ax.plot(np.linspace(lower_lim,upper_lim), np.linspace(lower_lim,upper_lim)-3, color='black', linestyle='-', label= r'Efficiency $\eta_p=0.5$')
     legend_handles_1.append(l[0])
-    l = ax.plot(np.linspace(-93,upper_lim+3), np.linspace(-93,upper_lim+3)-3-30, color='black', linestyle='--', label= r'Efficiency $\eta_p=10^{-3}$')
+    l = ax.plot(np.linspace(-93,upper_lim+3), np.linspace(-93,upper_lim+3)-3-30, color='black', linestyle='--', label= r'Efficiency $\eta_p=10^{-3}$',zorder=1)
     legend_handles_1.append(l[0])
 
-    
     for i, device in enumerate(device_list):
         hdf5_file = h5py.File(device.data_file, 'r')
         try:
             # plot only gain points between G_min and G_max
-            group = 'pumping_data' if 'pumping_data'  in hdf5_file.keys() else 'pumping_data_20'
+            if 'pumping_data' in hdf5_file.keys():
+                group = 'pumping_data'
+            elif 'pumping_data_20' in hdf5_file.keys():
+                group = 'pumping_data_20'
+            elif ('nonlin_characterization' in hdf5_file.keys()) and ('pumping_data_20' in hdf5_file['nonlin_characterization']):
+                group = 'nonlin_characterization/pumping_data_20'
+            elif 'multiple_gains_sweep' in hdf5_file.keys():
+                group = 'multiple_gains_sweep'
             Happy_indices = []
             for index, G in enumerate( hdf5_file[group]['Gain'] ):
                 if G>19 and G<21:
-                    Delta = float(hdf5_file[group]['freq_c'][index])-float(hdf5_file[group]['Pump_freq'][index])/2
-                    if Delta < 3e6 and Delta>-3e6:
-                        Happy_indices = Happy_indices + [index]  
+                    Happy_indices = Happy_indices + [index] 
+#                    Delta = float(hdf5_file[group]['freq_c'][index])-float(hdf5_file[group]['Pump_freq'][index])/2
+#                    if Delta < 3e6 and Delta>-3e6:
+#                        Happy_indices = Happy_indices + [index]  
             P_1dB_exp = np.zeros(len(Happy_indices))
             Pump = np.zeros(len(Happy_indices))
             Gain = np.zeros(len(Happy_indices))
-            print(device.name)            
+            print(device.name)
             for l, index in enumerate(Happy_indices):
                 P_1dB_exp[l] =  hdf5_file[group].get('P_1dB')[index]
                 Pump[l] = hdf5_file[group].get('Pump_power')[index]
                 Gain[l] = hdf5_file[group].get('Gain')[index]      
-            l = ax.plot(Pump, P_1dB_exp + Gain, color=palette(i), linestyle='None', marker = '.', label=labels[i],alpha=1.0)                    
+            l = ax.plot(Pump, P_1dB_exp + Gain, color=palette(i), linestyle='None', marker = '.', label=labels[i],alpha=1.0,zorder=0)                    
+            
+            eta = 10**(np.mean(3 + P_1dB_exp + Gain - Pump)/10)
+            print('Mean power efficiency %f' %eta)
+            
             legend_handles_1.append(l[0])
         finally:
             hdf5_file.close()
 
-
-    l = ax.plot(-55.4, -123+20, color='black', marker='*', linestyle='none', markersize=5, label='Flux-pumped 8 SQUID JPA, Phys Rev B 89, 214517 (2014)')
+    l = ax.plot(-71, -137+17, color='black', marker='v', linestyle='none', markersize=4, label='Flux-pumped JPA, Appl. Phys. Lett. 93, 042510 (2008)')    
+    legend_handles_2.append(l[0])
+    l = ax.plot(-55.4, -123+20, color='black', marker='>', linestyle='none', markersize=4, label='Flux-pumped 8 SQUID JPA, Phys Rev B 89, 214517 (2014)')
     legend_handles_2.append(l[0])
     l = ax.plot(-64, -132+20, color='black', marker='X', linestyle='none', markersize=4, label='Wireless Josephson Paramp, Appl. Phys. Lett. 104, 232605 (2014)')
     legend_handles_2.append(l[0])
@@ -811,28 +962,26 @@ def plot_P1dB_and_pump_power_compare_devices(device_list, fpath=None, ftype='.pn
     legend_handles_2.append(l[0])
     l = ax.plot(-52, -133.5+20, color='black', marker='^', linestyle='none', markersize=4, label='Flux-pumped multimode paramp, J. Appl. Phys 118, 154501 (2015)')    
     legend_handles_2.append(l[0])
-    l = ax.plot(-70, -110+20, color='black', marker='>', linestyle='none', markersize=4, label='Broadband JPA, Appl. Phys. Lett. 107, 262601 (2015)')    
+    l = ax.plot(-70, -110+20, color='black', marker='*', linestyle='none', markersize=5, label='Broadband JPA, Appl. Phys. Lett. 107, 262601 (2015)')    
     legend_handles_2.append(l[0])    
     l = ax.plot(-68, -120+20, color='black', marker='d', linestyle='none', markersize=4, label='State-of-the-art JPC, Appl. Phys. Lett. 111, 202603 (2017)')
     legend_handles_2.append(l[0])
-    l = ax.plot(-80.5, -117+20, color='black', marker='P', linestyle='none', markersize=4, label='Current-pumped 80 SQUID JPA, arXiv:1809.08476 (2018)')    
+    l = ax.plot(-62, -125+20, color='black', marker='<', linestyle='none', markersize=4, label='Flux-pumped JPA, arXiv:1812.07621v1 (2018)')    
     legend_handles_2.append(l[0])
-    l = ax.plot(-62, -125+20, color='black', marker='<', linestyle='none', markersize=4, label='Flux-pumped lumped JPA, arXiv:1812.07621v1 (2018)')    
+    l = ax.plot(-80.5, -117+20, color='black', marker='P', linestyle='none', markersize=4, label='Current-pumped 80 SQUID JPA, Phys. Rev. Appl. 11, 034014 (2019)')    
     legend_handles_2.append(l[0])
-
-
-
-#    l = ax.plot(-33, -115+20, color='black', marker='>', linestyle='none', markersize=4, label='Flux-pumped 4 SQUID JPA, EPJ Web Conf., 198, 00008 (2019)')    
+#    l = ax.plot(-71.4, -102+20, color='black', marker='P', linestyle='none', markersize=4, label='SQUID TWPA, arXiv:1907.10158 (2019)')    
 #    legend_handles_2.append(l[0])
 
-
+#    l = ax.plot(-30, -40, color='black', marker='>', linestyle='none', markersize=4, label='KIT')
+#    legend_handles_2.append(l[0])
+    
+#    l = ax.plot(-33, -115+20, color='black', marker='>', linestyle='none', markersize=4, label='Flux-pumped 4 SQUID JPA, EPJ Web Conf., 198, 00008 (2019)')    
+#    legend_handles_2.append(l[0])
 
     # For TWPA we estimated according to Hong-Tong (or whatever his name is) TWPA spread-sheet that pump power is about -71,
     # but based on Macklin's thesis I estimated -61 dBm. He gives the pump current as 0.9 of I_c which for their junctions is 4.6 uA
     # For broadband JPA I asked Tanay Roy to give me an estimate which he obtained from some simulation
-
-
-
 
     first_legend = ax.legend(handles=legend_handles_1, loc='upper left', frameon=False)
     ax.add_artist(first_legend)
@@ -840,7 +989,6 @@ def plot_P1dB_and_pump_power_compare_devices(device_list, fpath=None, ftype='.pn
     second_legend = ax.legend(handles=legend_handles_2, loc='upper left', bbox_to_anchor=(-0.15, -0.2))
     for i,handle in enumerate(legend_handles_2): second_legend.legendHandles[i]._legmarker.set_markersize(6) 
     ax.add_artist(second_legend)
-
     
 #    plt.tight_layout()
     fig.savefig(path + 'power_plot_all_devices' + ftype,dpi=240)
@@ -928,13 +1076,16 @@ def plot_stark_shift_vs_nbar(device, skip=1, fpath=None, ftype='.png'):
     return temp 
         
       
-def plot_gain_trace(device, h5date, h5time, ftype='.png', savepath = None):
+def plot_gain_trace(device, h5date, h5time, ftype='.png', savepath = None, pump_vline=None):
 
     hdf5_file = h5py.File(device.data_file,'r')
     try:
         grp = hdf5_file[h5date][h5time]['LIN']
         keys = grp.keys()
         meas_name = [m for m in keys if 'CH' in m and '_' in m][0]
+        freqs = np.array(grp['frequencies']) * 1e-9 #to GHz
+        yr = np.array(grp[meas_name]['real'])
+        yi = np.array(grp[meas_name]['imag'])
         if 'memory' in hdf5_file[h5date][h5time].keys():
             memGrp = hdf5_file[h5date][h5time]['memory']
             ymemr = np.array(memGrp[meas_name]['real'])
@@ -942,9 +1093,8 @@ def plot_gain_trace(device, h5date, h5time, ftype='.png', savepath = None):
             ymemMag = np.abs(ymemr + 1j * ymemi)
         else: 
             ymemMag = 1
-        freqs = np.array(grp['frequencies']) * 1e-9 #to GHz
-        yr = np.array(grp[meas_name]['real'])
-        yi = np.array(grp[meas_name]['imag'])
+        if len(ymemMag) != len(yr):
+            ymemMag =1
     finally:
         hdf5_file.close()
     
@@ -952,20 +1102,19 @@ def plot_gain_trace(device, h5date, h5time, ftype='.png', savepath = None):
     yi = yi / ymemMag
     glogmag = 20*np.log10(np.abs(yr + 1j*yi))
     # now for the figure
-    fig, ax1 = plt.subplots(1, 1, figsize=(1.75,1.5), dpi=240)     #(1.75, 2.0)
+    fig, ax1 = plt.subplots(1, 1, figsize=(1.75,1.5), dpi=240)
     ax1.set_xlabel('Probe frequency (GHz)')
     plt.ylabel('Gain (dB)')
     plt.xlim([np.min(freqs), np.max(freqs)])
-    plt.ylim([-2, 22])
+#    plt.ylim([-2, 22])
     plt.plot(freqs, glogmag, color='k', linestyle='-')
-
-    ax2 = ax1.twiny()
-    ax2.set_xlim(-(max(freqs)-min(freqs))/2*1e3, (max(freqs)-min(freqs))/2*1e3)
-    ax2.set_xlabel('Probe detuning (MHz)')    
+    
+    if pump_vline:
+        plt.plot([pump_vline,pump_vline], [0,20],linestyle='--')
     
     plt.tight_layout()
     if savepath:
-        fig.savefig(savepath + 'gain_' + h5date  + '_' + h5time + ftype, dpi=240)
+        fig.savefig(savepath + 'gain_' + h5date  + '_' + h5time + ftype, dpi=600)
 
 
 
@@ -1236,22 +1385,22 @@ def plot_gain_divergence_figure():
 
 def plot_pump_power_sweep(device, ftype='.png'):
     
-    pump_powers = np.linspace(-10,20,int(30/0.01))
-    currents = np.loadtxt(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/JTLA/DATA/JTLA06_v3/pump_power_sweep/curr.txt')
-    gains = np.loadtxt(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/JTLA/DATA/JTLA06_v3/pump_power_sweep/gain_sweep.txt')    
+    pump_powers = np.linspace(-20,20,int(40/0.02))
+    currents = np.loadtxt(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/JAMPA/DATA/JAMPA10_v2/nonlin_characterization_9.1-11.2_and_5.0-6.2_GHz/curr.txt')
+    gains = np.loadtxt(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/JAMPA/DATA/JAMPA10_v2/nonlin_characterization_9.1-11.2_and_5.0-6.2_GHz/gain_sweep.txt')    
 
-        
-    hdf5_file = h5py.File(device.data_file,'r')
-    try:
-        grp = hdf5_file['pump_power_sweep']
-        currents = np.array(grp['current'])
-        pump_powers = np.array(grp['pump_powers'])
-        gains = np.array(grp['gains'])
-    finally:
-        hdf5_file.close()
+#        
+#    hdf5_file = h5py.File(device.data_file,'r')
+#    try:
+#        grp = hdf5_file['pump_power_sweep']
+#        currents = np.array(grp['current'])
+#        pump_powers = np.array(grp['pump_powers'])
+#        gains = np.array(grp['gains'])
+#    finally:
+#        hdf5_file.close()
 
     fig, ax = plt.subplots(1,dpi=150)
-    p = ax.pcolormesh(Flux(currents*1e-3,device.a,device.b), pump_powers, np.transpose(gains), cmap='coolwarm')#,vmin=-20,vmax=20)
+    p = ax.pcolormesh(currents, pump_powers, np.transpose(gains), cmap='coolwarm',vmin=-20,vmax=20)
 
 #    levels = [20]
 #    CS = ax.contour(currents,pump_powers,np.transpose(gains),levels, colors='black')
@@ -1259,13 +1408,11 @@ def plot_pump_power_sweep(device, ftype='.png'):
 #    plt.ylim(-10,20)
 
     ax.set_ylabel(r'${\rm Pump\, power (dBm)}$')
-#    ax.set_xlabel(r'${\rm Current\,(mA)}$')
-    ax.set_xlabel(r'${\Phi/\Phi_0}$')
+    ax.set_xlabel(r'${\rm Current\,(mA)}$')
+#    ax.set_xlabel(r'${\Phi/\Phi_0}$')
     fig.colorbar(p, ax=ax, label=r'${\rm Gain }$')
     
-    fig.savefig(device.device_folder + 'pump_power_sweep' + ftype, dpi=240)
-
-
+    fig.savefig(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/JAMPA/DATA/JAMPA10_v2/nonlin_characterization_9.1-11.2_and_5.0-6.2_GHz/pump_power_sweep' + ftype, dpi=240)
 
 
 def plot_all_gain_curves(device, sweep_name=None):
@@ -1274,7 +1421,7 @@ def plot_all_gain_curves(device, sweep_name=None):
     try:
         if sweep_name==None:
             savepath = device.device_folder + r'/nonlin_characterization/Gain_20/' + r'/all_gains/'
-            grp = hdf5_file['pumping_data_20']
+            grp = hdf5_file['nonlin_characterization']['pumping_data_20']
         else:
             grp = hdf5_file[sweep_name]['pump_params_sweep_20']
             savepath = device.device_folder + sweep_name + r'/all_gains/'
@@ -1286,7 +1433,26 @@ def plot_all_gain_curves(device, sweep_name=None):
             plot_gain_trace(device, Date, time[i], ftype='.png', savepath = savepath)
             plt.close('all')
     finally:
-        hdf5_file.close()    
+        hdf5_file.close()
+
+
+def plot_all_wide_band_gain_curves(device,sweep_name='multiple_gains_sweep'):
+    
+    hdf5_file = h5py.File(device.data_file,'r')
+    try:
+        grp = hdf5_file[sweep_name]
+        savepath = device.device_folder + sweep_name + r'/wide_span_all_gains/'
+        date = [float_to_DateTime(x) for x in np.array(grp['date_wide_span'])]
+        time = [float_to_DateTime(x) for x in np.array(grp['time_wide_span'])]
+        pump_freqs = np.array(grp['Pump_freq'])*1e-9
+
+        for i, Date in enumerate(date):
+            print(r'%d / %d' %(i,len(date)))
+            plot_gain_trace(device, Date, time[i], ftype='.png', savepath = savepath, pump_vline=pump_freqs[i]/2)
+            plt.close('all')
+    finally:
+        hdf5_file.close()
+
 
 def plot_all_nvr_curves(device, sweep_name=None):
     
@@ -1552,6 +1718,7 @@ def plot_detuning_sweeps(device, sweeps, dpi=600, ftype='.png'):
 
 
 
+
 ##############################################
 ##############################################
 ##############################################
@@ -1672,6 +1839,7 @@ def plot_stark_shift_vs_nbar_v2(device, skip=1, ftype='.png'):
     ax2.set_ylim(-50,50)
     ax2.set_xlim(0,20)
 
+
     plt.savefig(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/SPA/Kerr-free paper/Figures/Stark-fig.pdf', dpi=240)
 
 
@@ -1748,9 +1916,12 @@ def plot_Kerr_free_figure(device, sweeps, dpi=600, ftype='.png'):
     
     
     
-def plot_Kerr_free_figure_v2(device, sweeps, dpi=600, ftype='.png'):
+def plot_Kerr_free_figure_v2(device, sweeps=None, dpi=600, ftype='.png'):
 
-    fig, axes = plt.subplots(2, 5, sharex='col', sharey='row', figsize=(6.6, 2.5), gridspec_kw = {'height_ratios':[3, 1],'width_ratios':[680000000, 650000000,585000000,535000000,290000000]})
+    sweeps = sweeps if sweeps else ['pump_params_sweep_curr_1270','pump_params_sweep_curr_1290',
+                                    'pump_params_sweep_curr_1340','pump_params_sweep_curr_1380','pump_params_sweep_curr_1500']
+    
+    fig, axes = plt.subplots(2, 5, sharex='col', sharey='row', figsize=(7.0, 2.9), gridspec_kw = {'height_ratios':[3, 1],'width_ratios':[680000000, 650000000,585000000,535000000,290000000]})
 
     palette = plt.get_cmap('Set1')
     
@@ -1789,9 +1960,6 @@ def plot_Kerr_free_figure_v2(device, sweeps, dpi=600, ftype='.png'):
     
         f = Flux(current,device.a,device.b)
 
-
-
-
         ax = axes[0][j]
 
         if not j:
@@ -1820,6 +1988,16 @@ def plot_Kerr_free_figure_v2(device, sweeps, dpi=600, ftype='.png'):
 #        ax.text(0.5,0.5,'%.2f' %Flux(current,device.a,device.b),fontsize='x-small',transform=fig.transFigure)
 
         ax.annotate(r'$\Phi/\Phi_0=%.2f$' %f, xy=(0.03, 0.05), xycoords='axes fraction',fontsize=6)
+
+        ax_twin = ax.twiny()
+        ax_twin.set_xlim(pump_freqs[-1]/2*1e-9,pump_freqs[0]/2*1e-9)
+        from matplotlib.ticker import FormatStrFormatter
+        ax_twin.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+        ax_twin.set_xticks([x for x in np.asarray([-400,-200,0,200])*1e-3 + freq_c*1e-9 if x > pump_freqs[-1]/2*1e-9 - 0.01 and x<pump_freqs[0]/2*1e-9 + 0.01])
+        
+        if j==2:
+            ax_twin.set_xlabel('Operating frequency (GHz)')
+            ax_twin.xaxis.set_label_coords(0.5, 1.2)
 
         ax = axes[1][j]
 
@@ -1946,18 +2124,138 @@ def plot_IMD_at_different_gains(device, dpi=240, ftype='.png'):
                 flux_IMD = Flux(current,device.a, device.b)
                 plt.plot(np.delete(flux_IMD,Ind_bad_current), np.delete(IIP3,Ind_bad_current), color=palette(i), linestyle='None', marker='.', label='%.0f dB' %log_g)
                 
-                if log_g==0:
-                    freq_c = device.Freq(flux_IMD)
-                    K = 12*(device.g4_distributed(flux_IMD)) ## this already has the correction -5*g3**2/freq_c, because this g4 is from the distributed model !!!
-                    kappa = device.kappa(flux_IMD)
-                    G=1
-                    IIP3_theor = Watts_to_dBm(kappa**2*freq_c/np.abs(K)*(2*np.pi*h)*( 1/(np.sqrt(G)+1) )**3)
-                    plt.plot(flux_IMD,IIP3_theor)
+#                if log_g==0:
+#                    freq_c = device.Freq(flux_IMD)
+#                    K = 12*(device.g4_distributed(flux_IMD)) ## this already has the correction -5*g3**2/freq_c, because this g4 is from the distributed model !!!
+#                    kappa = device.kappa(flux_IMD)
+#                    G=1
+#                    IIP3_theor = Watts_to_dBm(kappa**2*freq_c/np.abs(K)*(2*np.pi*h)*( 1/(np.sqrt(G)+1) )**3)
+#                    plt.plot(flux_IMD,IIP3_theor)
                     
         plt.legend(loc = 'lower left',title='Gain')#,fontsize='x-small')
     finally:
         hdf5_file.close()
     fig.savefig(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/SPA/Kerr-free paper/Figures/' + 'IMD' + ftype, dpi=dpi)
+
+
+
+def plot_IMD_and_Stark_shift_combined(device, dpi=240, ftype='.png',skip=1):
+
+
+    fig, axes = plt.subplots(1, 2, figsize=(6, 2.0))
+    ax = axes[0]
+    ax.set_ylabel(r'$\Delta_{\rm Stark}/2\pi \;\rm (MHz)$')   #APS: 'x-large'   
+    ax.set_xlabel(r'$\overline{n}\;\rm (\, 10^3\,photons)$')        #APS: 'x-large'
+    
+    hdf5_file = h5py.File(device.data_file,'r')
+    try:    
+        currents = np.asarray(hdf5_file['fit_stark_shift'].get('current'))[::skip]
+        dates = np.asarray(hdf5_file['fit_stark_shift'].get('date'))[::skip]
+        times = np.asarray(hdf5_file['fit_stark_shift'].get('time'))[::skip]
+        drive_freqs = np.asarray(hdf5_file['fit_stark_shift'].get('drive_freq'))[::skip]
+        meas_name = hdf5_file['results'].attrs.get('flux_sweep_meas_name')        
+        f0_arr = [np.asarray(hdf5_file[float_to_DateTime( dates[j] )][float_to_DateTime( times[j] )]['fits'][meas_name].get('f0')) for j in range(len(currents))]
+        kc_arr = [np.asarray(hdf5_file[float_to_DateTime( dates[j] )][float_to_DateTime( times[j] )]['fits'][meas_name].get('kc')) for j in range(len(currents))]
+        ki_arr = [np.asarray(hdf5_file[float_to_DateTime( dates[j] )][float_to_DateTime( times[j] )]['fits'][meas_name].get('ki')) for j in range(len(currents))]
+        log_powers_arr = [np.asarray(hdf5_file[float_to_DateTime( dates[j] )][float_to_DateTime( times[j] )]['LIN'].get('powers_swept')) for j in range(len(currents))]
+    finally:
+        hdf5_file.close()      
+        norm = mpl.colors.Normalize(vmin = min(Flux(currents,device.a,device.b)), vmax = max(Flux(currents,device.a,device.b)))
+        cmap = plt.get_cmap('Spectral_r') #  'Dark2' 'jet'   #'tab10' 'rainbow_r' 'viridis'
+
+
+    for j, current in enumerate(currents):
+        
+        f_d = drive_freqs[j]
+        f_0 = f0_arr[j]
+        k_c = kc_arr[j]
+        k_i = ki_arr[j]
+        k_t = k_c + k_i 
+        
+        line_attenuation = attenuation(f_d, device.data_file, 'drive_attenuation')     
+        log_powers = log_powers_arr[j]
+        log_powers = log_powers + line_attenuation
+        powers = dBm_to_Watts(log_powers)
+        
+        
+        stark_shift = f_0 - f_0[0]
+        nbar = 1/(2*np.pi*h)*powers*k_c[0]/f_0[0]*((f_d/f_0[0])**2)/( (f_d-f_0[0])**2 + (k_t[0]/2)**2*((2*f_d/(f_0[0]+f_d))**2) )
+        color = cmap(norm(Flux(current, device.a, device.b)))
+        ax.plot(nbar*1e-3, stark_shift*1e-6, linestyle='-', color=color, marker='.', markersize=2.5, markeredgewidth=0.01, markeredgecolor='grey') #APS: linewidth=0.5, markersize=5.0
+    ax.set_xlim(0,34)
+    ax.set_xticks(np.linspace(0,30,4))
+#    plt.tight_layout()
+
+    
+#    cax, kw = mpl.colorbar.make_axes(plt.gca())
+#    cb = mpl.colorbar.ColorbarBase(cax, cmap=cmap, norm=norm, ticks=[0.25, 0.30, 0.35, 0.40, 0.45], **kw)
+#    cb.ax.set_yticklabels(['0.25','0.30','0.35','0.40','0.45'])
+#    cb.set_label('$\Phi/\Phi_0$', rotation=90) #APS: fontsize='x-large', labelpad=2
+#    cb.ax.yaxis.set_label_position('left')
+
+#    left, bottom, width, height = [0.55, 0.64, 0.225, 0.25]
+#    ax2 = fig.add_axes([left, bottom, width, height])
+#    plt.xticks(fontsize=4)
+#    plt.yticks(fontsize=4)
+#    plt.xticks(np.linspace(0,20,3))
+#
+#    for j, current in enumerate(currents):
+#        
+#        f_d = drive_freqs[j]
+#        f_0 = f0_arr[j]
+#        k_c = kc_arr[j]
+#        k_i = ki_arr[j]
+#        k_t = k_c + k_i 
+#        
+#        line_attenuation = attenuation(f_d, device.data_file, 'drive_attenuation')     
+#        log_powers = log_powers_arr[j]
+#        log_powers = log_powers + line_attenuation
+#        powers = dBm_to_Watts(log_powers)
+#        
+#        
+#        stark_shift = f_0 - f_0[0]
+#        nbar = 1/(2*np.pi*h)*powers*k_c[0]/f_0[0]*((f_d/f_0[0])**2)/( (f_d-f_0[0])**2 + (k_t[0]/2)**2*((2*f_d/(f_0[0]+f_d))**2) )
+#
+##       color = cmap(j)
+#        color = cmap(norm(Flux(current, device.a, device.b)))
+##         don't plot all those points at the plato, because they will jam on the sides of the graph and it looks bad, so I select certain current ranges to plot
+#        if  Flux(current,device.a,device.b)>0.35 and Flux(current,device.a,device.b)<0.41 : 
+#            plt.plot( nbar*1e-3, stark_shift*1e-6, linestyle='none', color=color, marker='.', markersize=2.5, markeredgewidth=0.01, markeredgecolor='grey') #APS: linewidth=0.5, markersize=5.0
+#
+#    ax2.set_ylim(-50,50)
+#    ax2.set_xlim(0,20)
+
+    ax = axes[1]
+    ax.set_xticks(np.linspace(0,0.5,6))
+    ax.set_yticks(np.linspace(-110,-70,5))
+    ax.set_ylabel(r'$ IIP_3 \;  \rm (dBm)$')
+    ax.set_xlabel(r'$\Phi/\Phi_0$')
+    line_style = 'None'
+
+    palette = plt.get_cmap('tab10')  #'Set1'
+
+    hdf5_file = h5py.File(device.data_file, 'r')    
+    try:
+        if 'nonlin_characterization' in hdf5_file.keys():
+            gains = np.asarray(hdf5_file['nonlin_characterization'].get('gains'))
+            colors = ['purple','blue','red','green','orange'] if len(gains)<=5 else mpl.cm.rainbow(np.linspace(0,1,len(gains)))
+            for i, log_g in enumerate(gains):
+                print(log_g)
+                IIP3 = np.asarray(hdf5_file['pumping_data_'+str(int(log_g))].get('IIP3'))
+                P1dB = np.asarray(hdf5_file['pumping_data_'+str(int(log_g))].get('P_1dB'))
+                current = np.asarray(hdf5_file['pumping_data_'+str(int(log_g))].get('current'))
+                Ind_bad_current = np.argmin(np.abs(current-1.455e-3))
+                flux_IMD = Flux(current,device.a, device.b)
+                ax.plot(np.delete(flux_IMD,Ind_bad_current), np.delete(IIP3,Ind_bad_current), color=palette(i), linestyle='None', marker='.', label='%.0f dB' %log_g)
+
+                    
+#        ax.legend(loc = 'lower left',title='Gain')#,fontsize='x-small')
+    finally:
+        hdf5_file.close()
+        
+    plt.tight_layout()
+    fig.savefig(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/Prospectus/Thesis Prospectus/figs/IMD_and_Stark_fig.pdf')
+
 
 
 
@@ -1983,40 +2281,40 @@ def plot_Hamiltonian_parameters(device, dpi=240, ftype='.png'):
     ax.set_xticks([-0.75,-0.5,-0.25,0,0.25,0.5,0.75])  
 
     fluxes = np.linspace(-0.75,0.75,2000)    
-    plt.plot(fluxes, np.abs(device.g3_distributed(fluxes)),color=palette(3))
-    plt.plot(fluxes, np.abs(device.g4_distributed(fluxes) + 0*(device.g3_distributed(fluxes))**2/device.Freq(fluxes)),color=palette(2))
+#    plt.plot(fluxes, np.abs(device.g3_distributed(fluxes)),color=palette(3))
+#    plt.plot(fluxes, np.abs(device.g4_distributed(fluxes) + 0*(device.g3_distributed(fluxes))**2/device.Freq(fluxes)),color=palette(2))
+#
+#
+#    """ Now plot g3 """  
+#    hdf5_file = h5py.File(device.data_file, 'r')
+#    try:
+#        g3_Data = np.abs(np.asarray(hdf5_file['g3_fit'].get('g3')))
+#        Flux_Data = np.asarray(hdf5_file['g3_fit'].get('fluxes'))
+#        plt.plot(list(Flux_Data)[0:-1:4], list(np.abs(g3_Data))[0:-1:4], color=palette(3), marker='.',linestyle='None',label=r'$|g_3|/2\pi$')
+#    finally:
+#        hdf5_file.close()
+#
+#
+#    """ Now plot g4 """  
+#    hdf5_file = h5py.File(device.data_file, 'r')
+#    try: 
+#        if 'fit_stark_shift' in hdf5_file.keys():
+#            Flux_Data_Stark = np.asarray(hdf5_file['fit_stark_shift'].get('flux'))
+#            g4_Data_Stark = np.asarray(hdf5_file['fit_stark_shift'].get('g4'))
+#            g4_corrected = g4_Data_Stark + 0*(device.g3_distributed(Flux_Data_Stark))**2/device.Freq(Flux_Data_Stark)
+#            ind = Flux_Data_Stark.argsort()
+#            plt.plot(list(Flux_Data_Stark[ind])[0:-1:1], list(np.abs(g4_corrected[ind]))[0:-1:1], color=palette(4), linestyle='None', marker='.', label=r'$|g_4^*|/2\pi$, Stark shift')   
+#        group = 'pumping_data' if 'pumping_data'  in hdf5_file.keys() else 'pumping_data_0'
+#        flux_IMD = Flux(np.asarray(hdf5_file[group].get('current')),device.a, device.b)
+#        g4_IMD = np.asarray(hdf5_file[group].get('g4_IMD'))
+#        g4_IMD = g4_IMD + 0*(device.g3_distributed(flux_IMD))**2/device.Freq(flux_IMD)
+#        plt.plot(list(flux_IMD)[0:-1:4], list(np.abs(g4_IMD))[0:-1:4], color=palette(2), linestyle='None', marker='.', label=r'$|g_4^*|/2\pi$, IMD')
+#    finally:
+#        hdf5_file.close()
+#    plt.legend(loc='best',frameon=False,ncol=3)
+#    fig.savefig(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/SPA/Kerr-free paper/Figures/' + 'ham_param1' + ftype, dpi=dpi)
 
-
-    """ Now plot g3 """  
-    hdf5_file = h5py.File(device.data_file, 'r')
-    try:
-        g3_Data = np.abs(np.asarray(hdf5_file['g3_fit'].get('g3')))
-        Flux_Data = np.asarray(hdf5_file['g3_fit'].get('fluxes'))
-        plt.plot(list(Flux_Data)[0:-1:4], list(np.abs(g3_Data))[0:-1:4], color=palette(3), marker='.',linestyle='None',label=r'$|g_3|/2\pi$')
-    finally:
-        hdf5_file.close()
-
-
-    """ Now plot g4 """  
-    hdf5_file = h5py.File(device.data_file, 'r')
-    try: 
-        if 'fit_stark_shift' in hdf5_file.keys():
-            Flux_Data_Stark = np.asarray(hdf5_file['fit_stark_shift'].get('flux'))
-            g4_Data_Stark = np.asarray(hdf5_file['fit_stark_shift'].get('g4'))
-            g4_corrected = g4_Data_Stark + 0*(device.g3_distributed(Flux_Data_Stark))**2/device.Freq(Flux_Data_Stark)
-            ind = Flux_Data_Stark.argsort()
-            plt.plot(list(Flux_Data_Stark[ind])[0:-1:1], list(np.abs(g4_corrected[ind]))[0:-1:1], color=palette(4), linestyle='None', marker='.', label=r'$|g_4^*|/2\pi$, Stark shift')   
-        group = 'pumping_data' if 'pumping_data'  in hdf5_file.keys() else 'pumping_data_0'
-        flux_IMD = Flux(np.asarray(hdf5_file[group].get('current')),device.a, device.b)
-        g4_IMD = np.asarray(hdf5_file[group].get('g4_IMD'))
-        g4_IMD = g4_IMD + 0*(device.g3_distributed(flux_IMD))**2/device.Freq(flux_IMD)
-        plt.plot(list(flux_IMD)[0:-1:4], list(np.abs(g4_IMD))[0:-1:4], color=palette(2), linestyle='None', marker='.', label=r'$|g_4^*|/2\pi$, IMD')
-    finally:
-        hdf5_file.close()
-    plt.legend(loc='best',frameon=False,ncol=3)
-    fig.savefig(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/SPA/Kerr-free paper/Figures/' + 'ham_param1' + ftype, dpi=dpi)
-
-    
+#    
     """ Now plot Kappa """    
     fig, ax = plt.subplots(1, 1, figsize=(3.375, 0.4))     
     plt.xlim(-0.75,0.75)
@@ -2029,7 +2327,7 @@ def plot_Hamiltonian_parameters(device, dpi=240, ftype='.png'):
     finally:
         hdf5_file.close()
     ax.set_yticks([1.5e8,2.5e8])    
-    ax.set_yticklabels(['$1.5\cdot10^8$','$2.5\cdot10^8$'])    
+    ax.set_yticklabels([r'$1.5\times 10^8$',r'$2.5\times 10^8$'])    
     ax.set_xticks([])
     plt.legend(loc='best',frameon=False)
     fig.savefig(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/SPA/Kerr-free paper/Figures/' + 'ham_param2' + ftype, dpi=dpi)
@@ -2050,7 +2348,7 @@ def plot_Hamiltonian_parameters(device, dpi=240, ftype='.png'):
     finally:
         hdf5_file.close()
     ax.set_yticks([6.0e9,7.0e9])
-    ax.set_yticklabels(['$6.0\cdot10^9$','$7.0\cdot10^9$'])    
+    ax.set_yticklabels([r'$6.0\times 10^9$',r'$7.0\times 10^9$'])    
     ax.set_xticks([])
     plt.legend(loc='best',frameon=False)
     fig.savefig(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/SPA/Kerr-free paper/Figures/' + 'ham_param3' + ftype, dpi=dpi)
@@ -2602,12 +2900,14 @@ def plot_NVR_and_gain_compression(device, sweep_name, ftype='.pdf',dpi=240):
 ##############################################
 ##############################################
     
-def plot_two_tone_spectroscopy_compare_devices(device_list, dpi=240, ftype='.png'):
+def plot_two_tone_spectroscopy_compare_devices(device_list=None, dpi=720):
 
     fig, axes = plt.subplots(1, 3, sharey='row', figsize=(7, 3)) 
 
-    for i, device in enumerate(device_list):
-        
+    device_list = device_list if device_list else [spa34_v3,JTLA01,JAMPA10_v2]
+    names = ['Device A', 'Device B', 'Device C']
+
+    for i, device in enumerate(device_list):        
         hdf5 = h5py.File(device.data_file)
         try:
             z = np.asarray(hdf5['two_tone_spectroscopy_data'].get('phase_normalized'))
@@ -2616,19 +2916,49 @@ def plot_two_tone_spectroscopy_compare_devices(device_list, dpi=240, ftype='.png
         finally:
             hdf5.close()
         ax = axes[i]
-        p1 = ax.pcolormesh(currents*1e3, ag_freqs*1e-9, np.transpose(z), cmap='RdBu',vmin=-180,vmax=180)
+
+        if device.name == 'JAMPA10_v2':
+            currents = currents[190:-1]
+            z = z[190:-1,:]
+        
+        fluxes = Flux(currents,device.a,device.b)
+
+        p1 = ax.pcolormesh(fluxes, ag_freqs*1e-9, np.transpose(z), cmap='RdBu',vmin=-180,vmax=180)
         ax.set_ylim(0,35)
         if i==0: 
             ax.set_ylabel(r'${\rm Frequency \,(GHz)}$')
         if i==1:
-            ax.set_xlabel(r'${\rm Current\, (mA)}$')
-        ax.set_title('$M=%d$' %device.M, fontsize=8)
+            ax.set_xlabel(r'$\Phi/\Phi_0$')
+            ax.get_xaxis().set_label_coords(0.5,-0.06)
+#        ax.set_title('$M=%d$' %device.M, fontsize=8)
+        ax.set_title(names[i], fontsize=8)        
+
+
+        if device.name == 'JTLA01':
+            hdf5 = h5py.File(device.data_file)
+            try:
+                currents_theor = np.asarray(hdf5['two_tone_spectroscopy_data'].get('currents'))
+                fluxes = Flux(currents_theor, device.a, device.b)
+            finally:
+                hdf5.close()
+            array = device.load_array_modes()
+            n_modes = len(array.mode_num_arr)
+            colors = mpl.cm.rainbow(np.linspace(0,1,n_modes))
+            for n in array.mode_num_arr:
+                ax.plot(fluxes,1e-9*freq_array_modes_SNAIL_with_cap(np.asarray((currents_theor,np.ones(len(currents_theor))*n)), 
+                          device.alpha, device.a, device.b, device.x_c, device.y_c, device.f_0), linestyle='--', linewidth=0.5, color='k')
+
+
     cbar = fig.colorbar(p1, label=r'$\rm Phase \,(deg)$',ax=axes.ravel().tolist(), location='right')#,ticks=[10,15,20,25,30])
-#    cbar.ax.set_yticklabels(['10', '15','20','25','30'])
-    fig.savefig(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/JTLA/paper/' + 'fig2' + ftype, dpi=dpi)     
+    fig.savefig(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/JAMPA/paper/' + 'fig2.png', dpi=dpi)
+    
+
+
+
+
     
     
-def plot_gains_wide_span(device, h5date, h5time, inset_data=None, ftype='.png', savepath = None):
+def plot_gains_wide_span(device, h5date, h5time, inset_data=None, ftype='.pdf', savepath = None):
 
     hdf5_file = h5py.File(device.data_file,'r')
     try:
@@ -2661,6 +2991,7 @@ def plot_gains_wide_span(device, h5date, h5time, inset_data=None, ftype='.png', 
     plt.ylim([-2, 22])
     plt.plot(freqs, glogmag, color=palette(0), linestyle='-') 
     plt.xlim([4.4, 8.4])   
+#    plt.xlim([4, 12])  
 
 
     """ Plot insets. inset_data is a list of tuples containing dates and times of the gain curve measurements.
@@ -2725,36 +3056,600 @@ def plot_gains_wide_span(device, h5date, h5time, inset_data=None, ftype='.png', 
     fig.savefig(device.device_folder + 'wide_span_gain'  + ftype, dpi=240)
 
 
-def plot_phase_colorMAP(device, colorMap=('hot','phase'), title=None, ftype='.png'):
+def plot_phase_colorMAP(device, colorMap=('hot','phase'), flux_calibrated=True, ftype='.png'):
 
     hdf5_file = h5py.File(device.data_file,'r')
     try:
         date = hdf5_file['results'].attrs.get('flux_sweep_date')
         time = hdf5_file['results'].attrs.get('flux_sweep_time')
-        meas_name = hdf5_file['results'].attrs.get('flux_sweep_meas_name') 
+        meas_name = hdf5_file['results'].attrs.get('flux_sweep_meas_name')
         frequencies = np.asarray(hdf5_file[date][time]['LIN'].get('frequencies'))
-        fluxes = Flux(np.asarray(hdf5_file[date][time]['LIN'].get('currents')),device.a,device.b)
+        currents = np.asarray(hdf5_file[date][time]['LIN'].get('currents'))
+        if flux_calibrated:
+            fluxes = Flux(currents,device.a,device.b)
+        else:
+            fluxes = Flux(currents,1e3,0)
         real = np.asarray(hdf5_file[date][time]['LIN'][meas_name].get('real'))
         imag = np.asarray(hdf5_file[date][time]['LIN'][meas_name].get('imag'))
     finally:
         hdf5_file.close()
 
     define_phaseColorMap()
-    (ylog, yphase) = complex_to_PLOG(np.vectorize(complex)(real, imag))
+    
+    A = real +1j*imag
+    (ylog, yphase) = complex_to_PLOG(A)
 
     freqs = 1e-9*frequencies
     a_abs = np.transpose(ylog)
     a_phase = np.transpose(yphase)
+
     
     fig, ax = plt.subplots(1,1,figsize=(3.375, 1.5),dpi=240)
     p1 = ax.pcolormesh(fluxes, freqs, a_phase, cmap=colorMap[1])
     fig.colorbar(p1, ax=ax, ticks=[-180, -90, 0, 90, 180], label=r'${\rm Phase \,(deg)}$')
     ax.set_ylabel(r'${\rm Frequency \,(GHz)}$')
-#    ax.set_xlabel(r'${\rm Flux}$, $\Phi/\Phi_0$')
-    ax.set_xlabel(r'$\rm Current \,(mA)$')
+    if not flux_calibrated:
+        ax.set_xlabel(r'$\rm Current \,(mA)$')
+    else:
+        ax.set_xlabel(r'${\rm Flux}$, $\Phi/\Phi_0$')
     plt.tight_layout()
     fig.savefig(device.device_folder + 'phase_colormap' + ftype,dpi=240)
     
     
     
     
+def plot_multiple_gains(device, ftype='.png', savepath = None):
+
+    """Plot the gains"""
+    fig, ax = plt.subplots(1, 1, figsize=(7, 2), dpi=240)
+    ax.set_xlabel('Probe frequency (GHz)')
+    ax.set_ylabel('Gain (dB)')
+    
+    hdf5 = h5py.File(device.data_file, 'r')
+    try:
+        dates = np.asarray(hdf5['multiple_gains_sweep'].get('date'))
+        times = np.asarray(hdf5['multiple_gains_sweep'].get('time'))
+        CW = np.asarray(hdf5['multiple_gains_sweep'].get('CW_freq'))
+        dates = dates[np.argsort(CW)]
+        times = times[np.argsort(CW)]
+
+        for date,time in zip(dates,times):
+            h5date = float_to_DateTime(date)
+            h5time = float_to_DateTime(time)
+            grp = hdf5[h5date][h5time]['LIN']
+            keys = grp.keys()
+            meas_name = [m for m in keys if 'CH' in m and '_' in m][0]
+            if 'memory' in hdf5[h5date][h5time].keys():
+                memGrp = hdf5[h5date][h5time]['memory']
+                ymemr = np.array(memGrp[meas_name]['real'])
+                ymemi = np.array(memGrp[meas_name]['imag'])
+                ymemMag = np.abs(ymemr + 1j * ymemi)
+            else: 
+                ymemMag = 1
+            freqs = np.array(grp['frequencies']) * 1e-9 #to GHz
+            yr = np.array(grp[meas_name]['real'])
+            yi = np.array(grp[meas_name]['imag'])
+            yr = yr / ymemMag
+            yi = yi / ymemMag
+            glogmag = 20*np.log10(np.abs(yr + 1j*yi))
+            # now for the figure
+            ax.plot(freqs, glogmag, linestyle='-')
+    finally:
+        hdf5.close()
+        
+    ax.set_ylim(-3,25)
+    plt.tight_layout()   
+    fig.savefig(device.device_folder + 'multiple_gains'  + ftype, dpi=240)
+
+    """Plot the NVRs"""
+    fig, ax = plt.subplots(1, 1, figsize=(7, 2), dpi=240)  
+    ax.set_xlabel('Probe frequency (GHz)')
+    ax.set_ylabel('NVR (dB)')
+    hdf5 = h5py.File(device.data_file, 'r')
+    try:
+        for date,time in zip(dates,times):
+            h5date = float_to_DateTime(date)
+            h5time = float_to_DateTime(time)
+            key1 = list(hdf5[h5date][h5time]['noise'].keys())[0]
+            grp = hdf5[h5date][h5time]['noise'][key1]
+            memGrp = hdf5[h5date][h5time]['noise'][key1]['memory']
+            keys = grp.keys()
+            meas_name = [m for m in keys if 'CH' in m and '_' in m][0]
+            freqs = np.array(grp['frequencies']) * 1e-9 #to GHz
+            
+            noise_on = np.array(grp[meas_name]['logmag'])
+            noise_off = np.array(memGrp[meas_name]['logmag'])
+            NVR = noise_on - noise_off
+
+            if np.abs(np.mean(freqs)-9.7)<40e-3:
+                print(h5date)
+                print(h5time)
+                print(max(NVR))
+
+            ax.plot(freqs, NVR, linestyle='-')
+    finally:
+        hdf5.close()
+    ax.set_ylim(-2,15)
+    plt.tight_layout()   
+    fig.savefig(device.device_folder + 'multiple_NVRs'  + ftype, dpi=240)
+
+    """ Plot the P1dB """
+    fig, ax = plt.subplots(1, 1, figsize=(7, 2), dpi=240)  
+    ax.set_xlabel('Probe frequency (GHz)')
+    ax.set_ylabel(r'$P_{\rm 1dB}$ (dB)')
+    SNT_flag = False
+    
+    hdf5 = h5py.File(device.data_file, 'r')    
+    try:
+        CW = np.asarray(hdf5['multiple_gains_sweep'].get('CW_freq'))
+        P1dB = np.asarray(hdf5['multiple_gains_sweep'].get('P_1dB'))  
+        ax.plot(CW*1e-9, P1dB, marker='.',linestyle='none',color='red',markersize=3)
+
+        if 'SNT_calibration' in hdf5.keys():
+            P1dB_SNT = np.asarray(hdf5['SNT_calibration'].get('P_1dB'))
+            SNT_flag = True
+    finally:
+        hdf5.close()
+
+    P1dB_mean = np.mean(np.sort(P1dB))
+    P1dB_std = np.std(np.sort(P1dB))
+    ax.plot([4,12],[P1dB_mean,P1dB_mean],linestyle='--',label = r'%.1f $\pm$ %.1f dBm' %(P1dB_mean,P1dB_std),color='red')
+
+    if SNT_flag:
+        ax.plot(CW*1e-9, P1dB_SNT, marker='.',linestyle='none',color='blue',markersize=3)
+        P1dB_mean = np.mean(np.sort(P1dB_SNT))
+        P1dB_std = np.std(np.sort(P1dB_SNT))
+        ax.plot([4,12],[P1dB_mean,P1dB_mean],linestyle='--',label = r'%.1f $\pm$ %.1f dBm' %(P1dB_mean,P1dB_std),color='blue')
+
+
+    plt.legend()
+
+    plt.tight_layout()   
+    fig.savefig(device.device_folder + 'P_1dB'  + ftype, dpi=240)
+
+
+    """Plot Bandwidth"""
+    fig, ax = plt.subplots(1, 1, figsize=(7, 2), dpi=240)  
+    ax.set_xlabel('Probe frequency (GHz)')
+    ax.set_ylabel('Bandwidth (MHz)')
+    hdf5 = h5py.File(device.data_file, 'r')    
+    try:
+        CW = np.asarray(hdf5['multiple_gains_sweep'].get('CW_freq'))
+        Bw = np.asarray(hdf5['multiple_gains_sweep'].get('Bandwidth'))  
+        ax.plot(CW*1e-9, Bw*1e-6, marker='.',linestyle='none',color='red',markersize=3)
+    finally:
+        hdf5.close()
+
+    Bw_mean = np.mean(Bw)
+    Bw_std = np.std(Bw)
+    
+    ax.plot([4,12],[Bw_mean*1e-6,Bw_mean*1e-6],linestyle='--',label = r'%.1f $\pm$ %.1f MHz' %(Bw_mean*1e-6,Bw_std*1e-6))
+
+    plt.legend()
+    plt.ylim(0,20)
+
+    plt.tight_layout()     
+    fig.savefig(device.device_folder + 'Bandwidth'  + ftype, dpi=240)
+
+
+def plot_wide_span_gain_figure(ftype='.pdf', savepath = None):
+    
+    fig, axes = plt.subplots(6, 1, dpi=300, sharex='col',gridspec_kw = {'height_ratios':[0.5, 0.5, 1, 0.5, 0.5, 0.5]})
+    plt.gcf().set_size_inches(7,5)
+    
+    axes[1].set_ylabel('Gain (dB)')
+    axes[1].yaxis.set_label_coords(-0.045, 0.47)       
+    
+    axes[-1].set_xlabel('Probe frequency (GHz)')
+    palette = plt.get_cmap('tab10')
+  
+    device = JAMPA10_v2
+
+
+    # Plot multiple gain curves
+
+    hdf5 = h5py.File(device.data_file, 'r')    
+    try:
+        dates = np.asarray(hdf5['multiple_gains_sweep'].get('date'))
+        times = np.asarray(hdf5['multiple_gains_sweep'].get('time'))
+        time_wide_span = np.asarray(hdf5['multiple_gains_sweep'].get('time_wide_span'))
+        freq_p = np.asarray(hdf5['multiple_gains_sweep'].get('Pump_freq'))
+        CW = np.asarray(hdf5['multiple_gains_sweep'].get('CW_freq'))
+        dates = dates[np.argsort(CW)]
+        times = times[np.argsort(CW)]
+
+        for date, time, i in zip(dates, times, np.arange(len(dates))):
+            h5date = float_to_DateTime(date)
+            h5time = float_to_DateTime(time)
+            grp = hdf5[h5date][h5time]['LIN']
+            keys = grp.keys()
+            meas_name = [m for m in keys if 'CH' in m and '_' in m][0]
+            if 'memory' in hdf5[h5date][h5time].keys():
+                memGrp = hdf5[h5date][h5time]['memory']
+                ymemr = np.array(memGrp[meas_name]['real'])
+                ymemi = np.array(memGrp[meas_name]['imag'])
+                ymemMag = np.abs(ymemr + 1j * ymemi)
+            else: 
+                ymemMag = 1
+            freqs = np.array(grp['frequencies']) * 1e-9 #to GHz
+            yr = np.array(grp[meas_name]['real'])
+            yi = np.array(grp[meas_name]['imag'])
+            yr = yr / ymemMag
+            yi = yi / ymemMag
+            glogmag = 20*np.log10(np.abs(yr + 1j*yi))
+            # now for the figure
+            axes[2].plot(freqs, glogmag, linestyle='-', color = palette(i % 10))
+    finally:
+        hdf5.close()
+
+    from matplotlib.ticker import (MultipleLocator, FormatStrFormatter, AutoMinorLocator)
+    axes[2].yaxis.set_major_locator(MultipleLocator(10))
+    axes[2].yaxis.set_major_formatter(FormatStrFormatter('%d'))
+    axes[2].yaxis.set_minor_locator(MultipleLocator(5))
+
+
+    # Plot degenerate wide-band gain profile 1
+
+    h5date, h5time = ['190518','021040']
+    i = np.where(time_wide_span == float(h5time))[0][0]
+    axes[1].plot(np.ones(2)*freq_p[i]/2*1e-9, [-2,22],color='black', linestyle='--')
+    print(freq_p[i]*1e-9)
+
+    hdf5_file = h5py.File(device.data_file,'r')
+    try:
+        grp = hdf5_file[h5date][h5time]['LIN']
+        keys = grp.keys()
+        meas_name = [m for m in keys if 'CH' in m and '_' in m][0]
+        if 'memory' in hdf5_file[h5date][h5time].keys():
+            memGrp = hdf5_file[h5date][h5time]['memory']
+            ymemr = np.array(memGrp[meas_name]['real'])
+            ymemi = np.array(memGrp[meas_name]['imag'])
+            ymemMag = np.abs(ymemr + 1j * ymemi)
+        else: 
+            ymemMag = 1
+        freqs = np.array(grp['frequencies']) * 1e-9 #to GHz
+        yr = np.array(grp[meas_name]['real'])
+        yi = np.array(grp[meas_name]['imag'])
+    finally:
+        hdf5_file.close()
+    yr = yr / ymemMag
+    yi = yi / ymemMag
+    glogmag = 20*np.log10(np.abs(yr + 1j*yi))
+    axes[1].plot(freqs, glogmag, color=palette(7), linestyle='-') 
+    
+    axes[1].yaxis.set_major_locator(MultipleLocator(10))
+    axes[1].yaxis.set_major_formatter(FormatStrFormatter('%d'))
+    axes[1].yaxis.set_minor_locator(MultipleLocator(5))
+    
+    # Plot non-degenerate wide-band gain profile 2
+    
+    h5date, h5time = ['190522','143826']
+    i = np.where(time_wide_span == float(h5time))[0][0]
+    axes[0].plot(np.ones(2)*freq_p[i]/2*1e-9, [-2,22],color='black', linestyle='--') 
+    print(freq_p[i]*1e-9)
+
+    hdf5_file = h5py.File(device.data_file,'r')
+    try:
+        grp = hdf5_file[h5date][h5time]['LIN']
+        keys = grp.keys()
+        meas_name = [m for m in keys if 'CH' in m and '_' in m][0]
+        if 'memory' in hdf5_file[h5date][h5time].keys():
+            memGrp = hdf5_file[h5date][h5time]['memory']
+            ymemr = np.array(memGrp[meas_name]['real'])
+            ymemi = np.array(memGrp[meas_name]['imag'])
+            ymemMag = np.abs(ymemr + 1j * ymemi)
+        else: 
+            ymemMag = 1
+        freqs = np.array(grp['frequencies']) * 1e-9 #to GHz
+        yr = np.array(grp[meas_name]['real'])
+        yi = np.array(grp[meas_name]['imag'])
+    finally:
+        hdf5_file.close()
+    yr = yr / ymemMag
+    yi = yi / ymemMag
+    glogmag = 20*np.log10(np.abs(yr + 1j*yi))
+    axes[0].plot(freqs, glogmag, color=palette(3), linestyle='-') 
+
+    axes[0].yaxis.set_major_locator(MultipleLocator(10))
+    axes[0].yaxis.set_major_formatter(FormatStrFormatter('%d'))
+    axes[0].yaxis.set_minor_locator(MultipleLocator(5))
+ 
+
+    # Plot P1dB from multiple gains sweep
+    axes[3].set_ylabel(r'$P_{\rm 1dB}$ (dBm)')
+    axes[3].yaxis.set_label_coords(-0.045, 0.47)    
+    
+    hdf5 = h5py.File(device.data_file, 'r')    
+    try:
+        CW = np.asarray(hdf5['multiple_gains_sweep'].get('CW_freq'))
+        P1dB = np.asarray(hdf5['SNT_calibration'].get('P_1dB'))
+        print(max(P1dB))
+        print(np.mean(P1dB))
+        P1dB = P1dB.reshape((len(P1dB),1))
+#        axes[2].plot([4,12],[np.mean(P1dB),np.mean(P1dB)],linestyle='--')
+        gain_array = np.asarray(hdf5['multiple_gains_sweep'].get('Gain_array'))
+        signal_pow_array = np.asarray(hdf5['multiple_gains_sweep'].get('Signal_pow_array'))
+        ind = np.argmin(np.abs(signal_pow_array-P1dB),axis=1)
+        gain = np.asarray(hdf5['multiple_gains_sweep'].get('Gain'))
+        gain = gain.reshape((len(gain),1))
+        gain_saturated = np.array([gain_array[i][ind[i]] for i in range(len(gain))]).reshape((len(P1dB),1))
+        bool_arr = gain > gain_saturated
+        axes[3].plot(CW[np.where(bool_arr==True)[0]]*1e-9, P1dB[np.where(bool_arr==True)[0]], marker='+',linestyle='none',color=palette(0), markeredgewidth=1,markersize=5, label = r'$P_{\rm -1 dB}$') #markerfacecolor='none',      
+        axes[3].plot(CW[np.where(bool_arr==False)[0]]*1e-9, P1dB[np.where(bool_arr==False)[0]], marker='o',linestyle='none',color=palette(0), label = r'$P_{\rm +1 dB}$') #markerfacecolor='none',markeredgewidth=0.8
+    finally:
+        hdf5.close()
+
+
+    P1dB_mean = np.mean(np.sort(P1dB))
+    axes[3].plot([3.9,12],[P1dB_mean,P1dB_mean],linestyle='--',color=palette(0), label = r'Mean %.1f dBm' %(P1dB_mean))
+    axes[3].set_yticks([-140,-120,-100])
+    axes[3].set_ylim(min(P1dB)-5,max(P1dB)+5)
+
+    from matplotlib.ticker import (MultipleLocator, FormatStrFormatter, AutoMinorLocator)
+    axes[3].xaxis.set_major_locator(MultipleLocator(1))
+    axes[3].xaxis.set_major_formatter(FormatStrFormatter('%d'))
+    axes[3].xaxis.set_minor_locator(MultipleLocator(0.1))
+    axes[3].yaxis.set_minor_locator(MultipleLocator(10))
+
+#    legend = axes[2].legend(loc='best', ncol=3)
+
+
+
+    # Plot Bandwidth from multiple gains sweep
+    axes[4].set_ylabel(r'$B$ (MHz)')
+    axes[4].yaxis.set_label_coords(-0.045, 0.47)    
+    
+    hdf5 = h5py.File(device.data_file, 'r')    
+    try:
+        CW = np.asarray(hdf5['multiple_gains_sweep'].get('CW_freq'))
+        Bw = np.asarray(hdf5['multiple_gains_sweep'].get('Bandwidth'))
+        Bw = Bw.reshape((len(Bw),1))*1e-6
+        axes[4].plot(CW*1e-9, Bw, marker='s',linestyle='none',color=palette(1)) #markerfacecolor='none',      
+    finally:
+        hdf5.close()
+    axes[4].set_ylim(min(Bw)-2,21)
+
+    Bw_mean = np.mean(np.sort(Bw))
+    axes[4].plot([3.9,12],[Bw_mean,Bw_mean],linestyle='--',color=palette(1))
+
+    from matplotlib.ticker import (MultipleLocator, FormatStrFormatter, AutoMinorLocator)
+    axes[4].yaxis.set_major_locator(MultipleLocator(10))
+    axes[4].yaxis.set_major_formatter(FormatStrFormatter('%d'))
+    axes[4].yaxis.set_minor_locator(MultipleLocator(5))
+
+
+
+    # Plot system noise temperature with SPA on
+    axes[5].set_ylabel(r'$T_N$ (K)')
+    axes[5].yaxis.set_label_coords(-0.045, 0.47)    
+
+    hdf5 = h5py.File(device.data_file, 'r')    
+    try:
+        CW = np.asarray(hdf5['multiple_gains_sweep'].get('CW_freq'))   
+        ind = np.argsort(CW)
+        CW = CW[ind]
+        T_spa = np.asarray(hdf5['SNT_calibration'].get('T_SPA'))
+        dT_spa = np.asarray(hdf5['SNT_calibration'].get('dT_SPA'))
+        T_spa = T_spa[ind]
+        dT_spa = dT_spa[:,ind]
+    finally:
+        hdf5.close()
+
+
+#    axes[5].plot(CW[:-9]*1e-9, T_spa[:-9], marker='^',linestyle='none',color=palette(2))
+    axes[5].errorbar(CW*1e-9, T_spa, marker='^',linestyle='none',color=palette(2), yerr=dT_spa,ecolor='black',capsize=1)
+#    axes[5].errorbar(CW[:-9]*1e-9, T_spa[:-9], marker='.',linestyle='none',color=palette(2), yerr=dT_spa[:,:-9],ecolor='black',capsize=1)
+    
+    
+    axes[5].plot([4,12],h/Boltzmann*np.array([4e9,12e9])/2,linestyle='--',color=palette(2))
+    axes[5].set_ylim(0,1.05)
+    axes[5].set_yticks([0,0.25,0.5,0.75,1.0])
+
+
+    plt.xlim(3.8,12.1)
+    plt.tight_layout()
+    fig.savefig(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/JAMPA/paper/multiple_gains.pdf', dpi=300)
+
+
+def plot_SNT_measurements(instrument='pnax'):
+
+    path = r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/JAMPA/DATA/SNT/' 
+    data_file = path + 'SNT.hdf5'   
+
+    # Noise measurement data
+    # 4-12 GHz with 10 MHz spacing on PNAX
+    date = '190619'
+    time = '212726'
+
+
+    # S11 of the SNTJ measured at room T (used to set up error bars)
+    S11_date = '190617'
+    S11_time = '152607'
+
+    # S12 of the bias tee measured at room T (used to shift the calibration plane)
+    BiasTee_date = '190808'
+    BiasTee_time = '131612'
+    
+    # conversion factor between the measured voltage and voltage on the SNT
+    # due to the voltage divider at mK stage. At room temperature this ratio is 1.5
+    fudge_factor = 1.8 
+    fractional_error = 0.10 # for the fudge factor
+
+    # extract the noise and voltage measurements
+    hdf5_file = h5py.File(data_file,'r')
+    try:
+        grp = hdf5_file[date][time]['noise']
+        freqs = np.array(grp['frequencies'])
+        V_snt = np.array(grp['V_snt'])   
+        V_snt = fudge_factor*V_snt         
+        noise_power = np.transpose(np.array(grp['logmag']))
+        # the actual resolution bandwidth is here: grp['frequencies'].attrs.get('rbw')
+        # but the PNAX reports the noise power normalized to 1 Hz bandwidth
+        Bw = 1 
+    finally:
+        hdf5_file.close()
+
+    # extract S12 of the bias tee at room temperature
+    hdf5_file = h5py.File(data_file,'r')
+    try:
+        S12_tee = np.array(hdf5_file[BiasTee_date][BiasTee_time]['LIN']['"CH3_S34_8"'].get('real')) + 1j*np.array(hdf5_file[BiasTee_date][BiasTee_time]['LIN']['"CH3_S34_8"'].get('imag'))
+        S12_tee = np.abs(S12_tee)**2
+        S12_tee_freqs = np.array(hdf5_file[BiasTee_date][BiasTee_time]['LIN'].get('frequencies'))
+    finally:
+        hdf5_file.close()
+
+    # extract S11 of the SNTJ at room temperature for error bars
+    hdf5_file = h5py.File(data_file,'r')
+    try:
+        S11 = np.array(hdf5_file[S11_date][S11_time]['LIN']['"CH3_S33_3"'].get('real')) + 1j*np.array(hdf5_file[S11_date][S11_time]['LIN']['"CH3_S33_3"'].get('imag'))
+        S11 = np.abs(S11)**2
+        S11_freqs = np.array(hdf5_file[S11_date][S11_time]['LIN'].get('frequencies'))
+    finally:
+        hdf5_file.close()
+
+    # plot S11 of the SNTJ
+    fig, ax = plt.subplots(1, 1, figsize=(3.375, 2.0), dpi=240)
+    ax.set_xlabel('Frequency (GHz)')
+    ax.set_ylabel('S11 (dB)')
+    ax.set_xlim(4,12)
+    ax.set_ylim(-40,0)
+    plt.grid(b=True, which='major', axis='both', linestyle='--', linewidth=0.5)
+    p = ax.plot(S11_freqs*1e-9, 10*np.log10(S11))
+    fig.savefig(path+'S11_of_SNTJ.png')
+
+
+    # calibration of PNAX receivers (becasue we took out the jumpers, now when power is sent directly 
+    # from the PNAX output to its receiver it reports some nontrivial S-parameters. Need to calibrate 
+    # them out because we will be using the absolute values for the power reported by PNAX. We verified 
+    # that this calibration gives the result consistent with the power measured by the Agilent SA.
+    hdf5_file = h5py.File(data_file,'r')
+    try:
+        recv_cal_freqs = np.array(hdf5_file['190625']['144610']['LIN'].get('frequencies'))
+        cal = np.array(hdf5_file['190625']['144610']['LIN']['"CH1_S11_1"'].get('real')) + 1j*np.array(hdf5_file['190625']['144610']['LIN']['"CH1_S11_1"'].get('imag'))
+        recvA_cal = complex_to_PLOG(cal)[0]
+        cal = np.array(hdf5_file['190625']['144610']['LIN']['"CH1_S22_12"'].get('real')) + 1j*np.array(hdf5_file['190625']['144610']['LIN']['"CH1_S22_12"'].get('imag'))
+        recvB_cal = complex_to_PLOG(cal)[0]
+    finally:
+        hdf5_file.close()
+
+    for i, f in enumerate(freqs):
+        ind_freq = np.argmin(np.abs(f-recv_cal_freqs))
+        power_offset = recvB_cal[ind_freq]
+        noise_power[i] = noise_power[i] - power_offset
+
+    noise_power = dBm_to_Watts(noise_power)
+
+
+    # plot colormap of noise power in frequency and voltage coordinates
+    fig, ax = plt.subplots(1, 1, figsize=(3.375, 2.0), dpi=240)
+    ax.set_xlabel('Frequency (GHz)')
+    ax.set_ylabel('Voltage on the SNT (mV)')
+    p = ax.pcolormesh(freqs*1e-9, V_snt*1e3, np.transpose(noise_power), cmap='YlGn')
+    fig.savefig(path+'noise_power_colormap.png')
+
+    # plot noise power vs voltage for selected frequencies
+    fig, ax = plt.subplots(1, 1, figsize=(3.375, 2.0), dpi=240)
+    ax.set_xlabel('Voltage on the SNT (mV)')
+    ax.set_ylabel('Noise power (W)')
+    for i, f in enumerate(freqs):
+        if i%100==0 and i>0:
+            ax.plot(V_snt*1e3, noise_power[i], label='%.1f GHz' %(f*1e-9),linestyle='None',marker='.')
+    ax.legend(fontsize='xx-small')
+    fig.savefig(path+'noise_power_selected_freqs.png')
+    
+    
+    # Extract the system (esentially HEMT) noise temperature and gain of the output chain 
+    # by fitting the linear regime of the voltage-bias-dependent noise power emmited by SNTJ
+    
+    T_N = np.zeros(len(freqs))
+    dT_S11 = np.zeros(len(freqs))
+    dT_BiasTee = np.zeros(len(freqs))
+    G = np.zeros(len(freqs))
+    
+    for i, f in enumerate(freqs):
+        # need these tricks to correct for the voltage offset
+        cusp_ind = np.argmin(noise_power[0]) # find the minimum of the cusp
+        # fit the left part to a linear function
+        p_l, cov_l = np.polyfit(V_snt[:cusp_ind-5], noise_power[i][:cusp_ind-5], 1, cov=True)
+        # fit the right part to a linear function        
+        p_r, cov_r = np.polyfit(V_snt[cusp_ind+5:], noise_power[i][cusp_ind+5:], 1, cov=True)  
+        # estimate the coefficients that would have been without the voltage offset
+        p0 = (-p_l[0] + p_r[0])/2
+        p1 = (p_l[1] + p_r[1])/2
+        # calculate T_N and gain 
+        T_N_prime = p1/p0*e/(2*Boltzmann)
+        G_prime = 10*np.log10(2*p0/e/(Bw))
+        # include the correction due to the finite loss between SNTJ and the calibration plane 
+        # that we actually care about, which is at the output of the bias tee! Bias tee is modeled
+        # as a beam splitter with parameter eta ~ 0.9 which is measured at room T and can improve 
+        # slightly when cold, leading to the error bar that can pull the T_N up by ~10%
+        eta = S12_tee[np.argmin(np.abs(f-S12_tee_freqs))]
+#        eta = 10.0**(eta/10.0)
+#        print(eta)
+        
+        T_N[i] = eta*T_N_prime-(1-eta)*(h*f/2/Boltzmann)
+        G[i] = G_prime-10*np.log10(eta)
+        
+        # find the error contribution from the S11 (will pull the noise temperature down)
+        ind_S11 = np.argmin(np.abs(f-S11_freqs))
+        dT_S11[i] = T_N[i]*S11[ind_S11]
+        dT_BiasTee[i] = T_N_prime - T_N[i]
+
+    # set the upper and lower error bars
+    dT_sys = np.zeros((2,len(freqs)))    
+    dT_sys[0] = fractional_error*T_N + dT_S11 
+    dT_sys[1] = fractional_error*T_N + dT_BiasTee
+
+    # plot the system noise temperature vs frequency
+    fig, ax = plt.subplots(1, 1, figsize=(3.375, 2.0), dpi=240)
+#    ax.set_xlim(4,12) # (4,10)
+    ax.set_ylim(0,60) # (8.22)
+    ax.set_xlabel('Frequency (GHz)')
+    ax.set_ylabel(r'$T_{sys}$ (K)')
+    palette = plt.get_cmap('tab10')
+#    ax.plot(freqs*1e-9, T_N,color=palette(3))
+    ax.errorbar(freqs*1e-9, T_N, yerr=dT_sys, color=palette(3), ecolor='black',errorevery=20,capsize=1) 
+    fig.savefig(path+'system_noise_temperature.png')
+    fig.savefig(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/JAMPA/paper/T_sys.png', dpi=300)
+  
+    # plot gain of the output chain vs frequency
+    fig, ax = plt.subplots(1, 1, figsize=(3.375, 2.0), dpi=240)
+    ax.set_xlabel('Frequency (GHz)')
+    ax.set_ylabel('System Gain (dB)')
+    ax.plot(freqs*1e-9, G)
+    fig.savefig(path+'gain_of_the_output_chain.png')
+    
+    # plot the double axes (noise and gain) figure
+    fig, ax = plt.subplots(1, 1, figsize=(3.375, 2.0), dpi=240)
+    palette = plt.get_cmap('tab10')
+    ax.set_ylim(0,60)
+    ax.set_xlabel('Frequency (GHz)')
+    color = palette(2)
+    ax.set_ylabel(r'$T_{sys}$ (K)', color = color)
+    ax.tick_params(axis='y', labelcolor=color)
+    ax.errorbar(freqs*1e-9, T_N, yerr=dT_sys, color=color, ecolor='black',errorevery=20,capsize=1) 
+    ax2 = ax.twinx()
+    color = palette(4)
+    ax2.tick_params(axis='y', labelcolor=color)
+    ax2.set_ylabel(r'$G_{sys}$ (dB)', color = color)
+    ax2.plot(freqs*1e-9, G, color=color)
+    fig.savefig(path+'twin_axis_SNT_calibration.png')
+    fig.savefig(r'/Users/vs362/Google Drive (vladimir.sivak@yale.edu)/Qulab/JAMPA/paper/SNTJ_calibration.png', dpi=300)
+    
+    
+    # save the noise calibration data tohdf5 file
+    hdf5_file = h5py.File(data_file)
+    try:
+        if 'SNT_calibration' in hdf5_file.keys():
+            del hdf5_file['SNT_calibration']
+        grp = hdf5_file.create_group('SNT_calibration')
+        grp.create_dataset('freqs', data = freqs)
+        grp.create_dataset('T_sys', data = T_N)
+        grp.create_dataset('dT_sys', data = dT_sys)
+        grp.create_dataset('G', data = G)
+        grp.create_dataset('recvA_pow_cal', data = recvA_cal)
+        grp.create_dataset('recvB_pow_cal', data = recvB_cal)
+        grp.create_dataset('recv_frq_cal', data = recv_cal_freqs)        
+    finally:
+        hdf5_file.close()    
+
