@@ -49,7 +49,11 @@ class Amplifier(object):
         finally:
             hdf5_file.close()
             
-            
+    def add_flux_sweep(self, date, time, meas_name='"CH1_S11_1"'):
+        self.flux_sweep_date = date
+        self.flux_sweep_time = time
+        self.flux_sweep_meas_name = meas_name
+        self.save_attributes()
             
 #   Adds different components to attenuation of drive/signal/pump 
     def add_component_to_line_attenuation(self, component_name, date, time, meas_name, pump=False, signal=False, drive=False):
@@ -131,24 +135,24 @@ class Amplifier(object):
             
             
     #   Loads the data about measured gain points into hdf5 file, then you can use it to plot all kinds of things
-    def load_nonlin_characterization(self, meas_name):
+    def load_nonlin_characterization(self, meas_name='"CH1_S11_1"',sweep_name='nonlin_characterization'):
         
         self.pumping_meas_name = meas_name
-        nominal_gain_array = np.loadtxt(self.device_folder+'nonlin_characterization'+SLASH+'gains.txt')
-#        nominal_gain_array = [nominal_gain_array]
+        nominal_gain_array = np.loadtxt(self.device_folder + sweep_name + SLASH + 'gains.txt')
+        nominal_gain_array = [nominal_gain_array]
         
         
         hdf5 = h5py.File(self.data_file)  
         try:
-            if 'nonlin_characterization' in hdf5.keys():
-                del hdf5['nonlin_characterization']
-            grp = hdf5.create_group('nonlin_characterization')
+            if sweep_name in hdf5.keys():
+                del hdf5[sweep_name]
+            grp = hdf5.create_group(sweep_name)
             grp.create_dataset('gains', data = nominal_gain_array)
         finally:
             hdf5.close()
         
         for log_g in nominal_gain_array:
-            temp_folder = 'nonlin_characterization'+SLASH+'Gain_'+str(int(log_g))+SLASH
+            temp_folder = sweep_name + SLASH + 'Gain_'+str(int(log_g))+SLASH
             data_dict = {}
             data_dict['current'] = np.loadtxt(self.device_folder+temp_folder+'curr.txt')*1e-3
             data_dict['date_linear'] = np.loadtxt(self.device_folder+temp_folder+'date_linear.txt')
@@ -260,9 +264,9 @@ class Amplifier(object):
                         G=1
                         g4_IMD[index] = float(kappa_c[index]**2*freq_c[index]/12/IIP_3*(2*np.pi*h)/8 )     
                          
-                if 'pumping_data_'+str(int(log_g)) in hdf5.keys():
-                    del hdf5['pumping_data_'+str(int(log_g))]
-                grp = hdf5.create_group('pumping_data_'+str(int(log_g)))
+                if 'pumping_data_'+str(int(log_g)) in hdf5[sweep_name].keys():
+                    del hdf5[sweep_name]['pumping_data_'+str(int(log_g))]
+                grp = hdf5[sweep_name].create_group('pumping_data_'+str(int(log_g)))
                 grp.create_dataset('freq_c', data = freq_c)
                 grp.create_dataset('kappa_c', data = kappa_c)
                 grp.create_dataset('kappa_t', data = kappa_t)
@@ -396,7 +400,7 @@ class Amplifier(object):
             for log_g in nominal_gain_array:
                 temp_folder = sweep_name+SLASH+'Gain_'+str(int(log_g))+SLASH
                 data_dict = {}
-                
+                print(np.loadtxt(self.device_folder+temp_folder+'date_linear.txt'))
                 date_linear = float_to_DateTime(np.loadtxt(self.device_folder+temp_folder+'date_linear.txt'))
                 time_linear = float_to_DateTime(np.loadtxt(self.device_folder+temp_folder+'time_linear.txt'))
                 current = np.loadtxt(self.device_folder+temp_folder+'current.txt')
@@ -435,9 +439,6 @@ class Amplifier(object):
                     grp.attrs['kappa_c'] = kappa_c
                     grp.attrs['kappa_t'] = kappa_t
                     grp.attrs['current'] = current                    
-                    
-                    
-                    
                     
                     # define all data folders (dates/times)
                     date = float_to_DateTime( data_dict['date'][index] )
@@ -498,7 +499,7 @@ class Amplifier(object):
                         noise_raise = np.asarray(hdf5[date][time]['noise'][key1][key2].get('logmag')) - np.asarray(hdf5[date][time]['noise'][key1]['memory'][key2].get('logmag'))
                         ind_CW = np.abs(np.asarray(hdf5[date][time]['noise'][key1].get('frequencies'))-freq_CW).argmin() + 2
                         NVR[index] = noise_raise[ind_CW]
-                        period_doubling_peak[index] = max(noise_raise) - NVR[index]
+#                        period_doubling_peak[index] = max(noise_raise) - NVR[index]
 #                        period_doubling_peak[index] = noise_raise[ind_CW+3] - NVR[index]
 
                 
@@ -527,60 +528,53 @@ class Amplifier(object):
             hdf5.close()
     
 
+    def add_array_modes_v2(self, array):
+        if array != {}:
+            hdf5 = h5py.File(self.data_file)
+            try:
+                if 'array_modes' in hdf5.keys():
+                    del hdf5['array_modes']
+                grp = hdf5.create_group('array_modes')
+                for n in array:
+                    i,f = array[n]
+                    mode_grp = grp.create_group(n)
+                    mode_grp.create_dataset('currents', data = i)
+                    mode_grp.create_dataset('res_freqs', data = f)
+            finally:
+                hdf5.close()
 
-
-    def load_pump_params_sweep_dumb(self, meas_name, sweep_name='pump_params_sweep', IMD=False):
-        
-        
-        self.pumping_meas_name = meas_name
-        nominal_gain_array = np.loadtxt(self.device_folder+sweep_name+SLASH+'gains.txt')        
-        
-        nominal_gain_array = [nominal_gain_array]
-        
+    def load_array_modes_v2(self):
         hdf5 = h5py.File(self.data_file)
         try:
-            if sweep_name in hdf5.keys():
-                del hdf5[sweep_name]
-            grp = hdf5.create_group(sweep_name)
-            grp.create_dataset('gains', data = nominal_gain_array)
-        
-            for log_g in nominal_gain_array:
-                temp_folder = sweep_name+SLASH+'Gain_'+str(int(log_g))+SLASH
-                data_dict = {}
-                
-                date_linear = float_to_DateTime(np.loadtxt(self.device_folder+temp_folder+'date_linear.txt'))
-                time_linear = float_to_DateTime(np.loadtxt(self.device_folder+temp_folder+'time_linear.txt'))
-                current = np.loadtxt(self.device_folder+temp_folder+'current.txt')
-
-                # load linear fits
-                grp.attrs['freq_c'] = float( np.asarray(hdf5[date_linear][time_linear]['LIN'][meas_name]['fits'].get('f0')) )
-                grp.attrs['kappa_i'] = float( np.asarray(hdf5[date_linear][time_linear]['LIN'][meas_name]['fits'].get('ki') ))
-                grp.attrs['kappa_c'] = float( np.asarray(hdf5[date_linear][time_linear]['LIN'][meas_name]['fits'].get('kc')) )
-                grp.attrs['kappa_t'] = float( np.asarray(hdf5[date_linear][time_linear]['LIN'][meas_name]['fits'].get('ki') )) + float( np.asarray(hdf5[date_linear][time_linear]['LIN'][meas_name]['fits'].get('kc') ))
-                grp.attrs['current'] = current
-                
-
-                data_dict['Pump_power'] = np.loadtxt(self.device_folder+temp_folder+'pump_power.txt')
-                data_dict['Pump_freq'] = np.loadtxt(self.device_folder+temp_folder+'pump_freq.txt')*1e9                
-                
-
-                Signal_Powers_dBm = np.zeros((len(data_dict['Pump_freq']),201))                
-                for index, pump_freq in enumerate(data_dict['Pump_freq']):  
-                    Signal_Powers_dBm[index] = np.loadtxt(self.device_folder + sweep_name + SLASH + 'signal_powers.txt')
-                    Signal_Powers_dBm[index] = Signal_Powers_dBm[index] + attenuation(pump_freq/2, self.data_file, 'signal_attenuation')            
-
-                Gains = np.zeros((len(data_dict['Pump_freq']),201))
-                logmag_on = np.loadtxt(self.device_folder+temp_folder+'logmag_on.txt')  
-                logmag_off = np.loadtxt(self.device_folder+temp_folder+'logmag_off.txt')
-                
-                for s in range(len(logmag_off)):
-                    Gains[s] = logmag_on[s] - logmag_off[s]
-    
-    
-                grp1 = grp.create_group('pump_params_sweep_'+str(int(log_g)))
-                grp1.create_dataset('Pump_power', data = data_dict['Pump_power'] + attenuation( data_dict['Pump_freq'], self.data_file, 'pump_attenuation') )
-                grp1.create_dataset('Gain_array', data = Gains)
-                grp1.create_dataset('Signal_pow_array', data = Signal_Powers_dBm)
-                grp1.create_dataset('Pump_freq', data = data_dict['Pump_freq'])
+            if 'array_modes' in hdf5.keys():
+                array = {}
+                for x in hdf5['array_modes'].keys():
+                    currents = np.asarray(hdf5['array_modes'][x].get('currents'))
+                    freqs = np.asarray(hdf5['array_modes'][x].get('res_freqs'))
+                    array[x] = (currents, freqs)
+                flag = True
+            else:
+                flag = False
         finally:
             hdf5.close()
+        return array if flag else None   
+
+    def mode_detector_flux_sweep(self, date_time=None, meas_name='"CH1_S11_1"'):
+        
+        date, time = date_time if date_time else [self.flux_sweep_date, self.flux_sweep_time] 
+        array_modes = mode_detector_flux_sweep(self.data_file, date, time, meas_name = meas_name, 
+                                               savepath = self.device_folder, ftype='.png')
+        self.add_array_modes_v2(array_modes)
+        
+        
+     
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
