@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import fractions
 from scipy.special import factorial
+import matplotlib.colors as plt_colors
 
 def lcm(a,b): return abs(a * b) / fractions.gcd(a,b) if a and b else 0
 
@@ -63,36 +64,7 @@ def offset(f,alpha,n=n_default,m=m_default):
         phi = phi + [fminbound(H,-lcm(n,m)*np.pi,lcm(n,m)*np.pi,args=(alpha,flux,n,m))]
     return np.asarray(phi)
 
-# --------------------------------------------------------------------------------------
-# --------------------------------------------------------------------------------------
 
-#n_x_default = 5
-#n_y_default = 5
-#m_x_default = 5
-#m_y_default = 15
-#
-#
-#def H(phi, alpha, f, n_x=n_x_default, m_x=m_x_default, n_y=n_y_default, m_y=m_y_default):
-#    return -alpha*n_y*np.sin(2*np.pi*f*n_x/n_y/2)/np.sin(2*np.pi*f/2/n_y)*np.cos(phi/n_y-(n_x-1)/2/n_y*2*np.pi*f) - m_y*np.sin(2*np.pi*f*m_x/m_y/2)/np.sin(2*np.pi*f/2/m_y)*np.cos(phi/m_y-(m_x-1+2*n_x)/2/m_y*2*np.pi*f)
-#
-#def c1(phi, alpha, f, n_x=n_x_default, m_x=m_x_default, n_y=n_y_default, m_y=m_y_default):
-#    return alpha*np.sin(2*np.pi*f*n_x/n_y/2)/np.sin(2*np.pi*f/2/n_y)*np.sin(phi/n_y-(n_x-1)/2/n_y*2*np.pi*f) + np.sin(2*np.pi*f*m_x/m_y/2)/np.sin(2*np.pi*f/2/m_y)*np.sin(phi/m_y-(m_x-1+2*n_x)/2/m_y*2*np.pi*f)
-#
-#def c2(phi, alpha, f, n_x=n_x_default, m_x=m_x_default, n_y=n_y_default, m_y=m_y_default):
-#    return 1/n_y*alpha*np.sin(2*np.pi*f*n_x/n_y/2)/np.sin(2*np.pi*f/2/n_y)*np.cos(phi/n_y-(n_x-1)/2/n_y*2*np.pi*f) + 1/m_y*np.sin(2*np.pi*f*m_x/m_y/2)/np.sin(2*np.pi*f/2/m_y)*np.cos(phi/m_y-(m_x-1+2*n_x)/2/m_y*2*np.pi*f)
-#
-#def c3(phi, alpha, f, n_x=n_x_default, m_x=m_x_default, n_y=n_y_default, m_y=m_y_default):
-#    return -1/n_y**2*alpha*np.sin(2*np.pi*f*n_x/n_y/2)/np.sin(2*np.pi*f/2/n_y)*np.sin(phi/n_y-(n_x-1)/2/n_y*2*np.pi*f) - 1/m_y**2*np.sin(2*np.pi*f*m_x/m_y/2)/np.sin(2*np.pi*f/2/m_y)*np.sin(phi/m_y-(m_x-1+2*n_x)/2/m_y*2*np.pi*f)
-#
-#def c4(phi, alpha, f, n_x=n_x_default, m_x=m_x_default, n_y=n_y_default, m_y=m_y_default):
-#    return -1/n_y**3*alpha*np.sin(2*np.pi*f*n_x/n_y/2)/np.sin(2*np.pi*f/2/n_y)*np.cos(phi/n_y-(n_x-1)/2/n_y*2*np.pi*f) - 1/m_y**3*np.sin(2*np.pi*f*m_x/m_y/2)/np.sin(2*np.pi*f/2/m_y)*np.cos(phi/m_y-(m_x-1+2*n_x)/2/m_y*2*np.pi*f)
-#
-#def offset(f, alpha, n_x=n_x_default, m_x=m_x_default, n_y=n_y_default, m_y=m_y_default):
-#    f = [f] if isinstance(f, float) or isinstance(f, int) else f
-#    phi=[]
-#    for flux in f:
-#        phi = phi + [fminbound(H,-lcm(n_y,m_y)*np.pi,lcm(n_y,m_y)*np.pi,args=(alpha,flux,n_x,m_x,n_y,m_y))]
-#    return np.asarray(phi)
 
 # --------------------------------------------------------------------------------------
 # ----- RF SQUID expansion coefficients ------------------------------------------------
@@ -264,7 +236,7 @@ def attenuation(freq, filename, group_name):
             date = hdf5_file[group_name][component].attrs.get('date')
             time = hdf5_file[group_name][component].attrs.get('time')
             meas_name = hdf5_file[group_name][component].attrs.get('meas_name')
-            attenuation += extract_attenuation(filename,date,time,meas_name,freq)
+            attenuation += extract_attenuation(filename, date, time, meas_name, freq)
     finally:
         hdf5_file.close()
     return attenuation
@@ -722,3 +694,126 @@ def fit_array_modes_flux_sweep_v2(Currents, Mode_nums, Frequencies, a_guess, b_g
     alpha, a, b, y_c, f_0 = popt  
     
     return alpha, a, b, y_c, f_0 
+
+
+
+
+def define_phaseColorMap():
+    # all numbers from Igor wave 'phaseindex'
+    # Igor colors take RGB from 0 to 65535
+    rgb = np.zeros((360,3), dtype=np.float)
+    rgb[0:90,0] = np.arange(0, 63000, 700)
+    rgb[90:180, 0] = 63000 * np.ones(90)
+    rgb[180:270, 0] = np.arange(63000, 0, -700)
+    rgb[90:180, 1] = np.arange(0, 63000, 700)
+    rgb[180:270, 1] = 63000 * np.ones(90)
+    rgb[270:360, 1] = np.arange(63000, 0, -700)
+    rgb = rgb  / 65535.0
+    # ListedColormap takes an arry of RGB weights normalized to be in [0,1]
+    phase_cmap = plt_colors.ListedColormap(rgb, name='phase')
+    plt.register_cmap(name='phase', cmap=phase_cmap)
+
+"""
+Approximately (!!!) locates the resonances from the flux sweep data. 
+Works even in the case when multiple modes are present.
+"""
+
+from sklearn.cluster import DBSCAN
+
+def mode_detector_flux_sweep(h5filename, date, time, meas_name='"CH1_S11_1"', savepath = None, ftype='.png'):
+
+    hdf5_file = h5py.File(h5filename,'r')
+    try:
+        frequencies = np.asarray(hdf5_file[date][time]['LIN'].get('frequencies'))
+        currents = np.asarray(hdf5_file[date][time]['LIN'].get('currents'))
+        real = np.asarray(hdf5_file[date][time]['LIN'][meas_name].get('real'))
+        imag = np.asarray(hdf5_file[date][time]['LIN'][meas_name].get('imag'))
+    finally:
+        hdf5_file.close()
+        
+    # define the figure
+    fig, axes = plt.subplots(2,2,figsize=(3.375*2, 1.5*2),dpi=240, sharex='col',sharey='row')
+    define_phaseColorMap()
+
+
+    A = real +1j*imag
+    yphase = complex_to_PLOG(A)[1]
+    a_phase = np.transpose(yphase)
+
+    # first just plot the Phase data 
+    ax = axes[0][0]
+    p1 = ax.pcolormesh(currents*1e3, frequencies*1e-9, a_phase, cmap = 'phase')
+#    fig.colorbar(p1, ax=ax, ticks=[-180, -90, 0, 90, 180], label=r'${\rm Phase \,(deg)}$')
+    ax.set_ylabel(r'${\rm Frequency \,(GHz)}$')
+
+    
+    # Now convert to binary representation and plot that
+    for i in range(a_phase.shape[0]-7):
+        a_phase[i] = a_phase[i] - a_phase[i+7]
+    a_phase[-1] = a_phase[-1]*0
+
+    a_phase = np.abs(a_phase-90)
+    threshold = 45
+    for i in range(a_phase.shape[0]):
+        for j in range(a_phase.shape[1]):
+            if a_phase[i,j]>threshold:
+                a_phase[i,j] = 0
+            elif a_phase[i,j]<threshold:
+                a_phase[i,j] = 1
+    bin_rep = a_phase
+    ax = axes[0][1]
+    p1 = ax.pcolormesh(currents*1e3, frequencies*1e-9, bin_rep, cmap='binary')#colorMap[1])
+#    fig.colorbar(p1, ax=ax, ticks=[-180, -90, 0, 90, 180], label=r'${\rm Contrast \,(0/1)}$')
+
+
+    # convert the binary rep to the list of points on the 2D grid to which the clustering
+    # algorithm will be applied
+    points = []
+    for i, bit_arr in enumerate(bin_rep):
+        for j, bit in enumerate(bit_arr):
+            if bit==1: points.append( [i,j] )
+
+    # apply DBSCAN to separate points into clusters, use equal distance along both axes        
+    db = DBSCAN(eps=20, min_samples=10).fit(points) 
+    labels = db.labels_ #-1 labels the noise, i.e. points that don't have min_samples neighbors in their eps-vicinity 
+    n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+    print('Found %d clusters' %n_clusters)
+    new_arr = np.ones(np.shape(bin_rep))*(-1)
+    for index, point in enumerate(points):
+        new_arr[point[0]][point[1]] = labels[index]
+
+    # colorplot the clusters
+    ax = axes[1][0]
+    p3 = ax.pcolormesh(currents*1e3, frequencies*1e-9, new_arr, cmap='Set2_r') #tab20
+#    fig.colorbar(p3, ax=ax, ticks=np.unique(labels), label=r'$\rm Cluster $')
+    ax.set_ylabel(r'${\rm Frequency \,(GHz)}$')
+    ax.set_xlabel(r'${\rm Current\,(mA)}$')        
+    
+
+    # select the average within each cluster as a proxy for the resonant frequency,
+    # add clusters to the object array_modes()
+    array_modes = {}
+    for cluster_num in range(0,n_clusters):
+        currs = []
+        frqs = []
+        for i, I in enumerate(currents):
+            cluster_indices = [j for j, x in enumerate(new_arr.T[i]) if x == cluster_num]
+            if cluster_indices:
+                currs.append(I)
+                ind = int(np.round(np.mean(np.asarray(cluster_indices))))
+                frqs.append(frequencies[ind])
+        array_modes[str(cluster_num)] = (np.array(currs),np.array(frqs))
+
+    # Plot the extracted modes
+    cmap = plt.get_cmap('Set2_r')
+    ax = axes[1][1]
+    for z in array_modes:
+        ax.plot(array_modes[z][0]*1e3, array_modes[z][1]*1e-9, color=cmap(int(z)))
+#    ax.set_ylabel(r'${\rm Frequency \,(GHz)}$')
+    ax.set_xlabel(r'${\rm Current\,(mA)}$')
+    plt.tight_layout()
+    if savepath:
+        fig.savefig(savepath + 'mode_detector_flux_sweep' + ftype, dpi=600)
+        
+    return array_modes
+    

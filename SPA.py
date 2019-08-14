@@ -12,7 +12,7 @@ from devices_functions import *
 from Amplifier import Amplifier 
 
 
-SLASH = '/' #'/' for Mac addresses or '\\' for PC
+SLASH = '/' #'/' for Mac addresses or '\\' for Windows
 
 
 class SPA(Amplifier):
